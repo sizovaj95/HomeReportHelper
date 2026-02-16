@@ -1,15 +1,9 @@
-import argparse
 import hashlib
 import json
-import os
+import pickle
 from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
-
-from dotenv import load_dotenv
-from azure.core.credentials import AzureKeyCredential
-from azure.ai.documentintelligence import DocumentIntelligenceClient
-from azure.ai.documentintelligence.models import AnalyzeDocumentRequest
 
 import layout_objects as lo
 from embeddings import EmbeddingClient
@@ -20,23 +14,16 @@ from storage_sqlite import SQLiteStore
 from summarize_sections import SectionSummarizer
 
 
-load_dotenv()
-
-AZURE_LANG_ENDPOINT = os.getenv("AZURE_LANGUAGE_SERVICE_ENDPOINT", "")
-AZURE_LANG_API_KEY = os.getenv("AZURE_LANGUAGE_SERVICE_API_KEY", "")
 DATA_PREPARATION_DIR = Path(__file__).resolve().parent
-DEFAULT_REPORTS_DIR = DATA_PREPARATION_DIR / "reports" / "pdf"
-
-
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Prepare OCR layout into canonical records.")
-    parser.add_argument("--pdf-path", default=None, help="Path to source PDF")
-    parser.add_argument("--document-id", default=None, help="Optional existing document id")
-    parser.add_argument("--skip-summaries", action="store_true")
-    parser.add_argument("--skip-embeddings", action="store_true")
-    parser.add_argument("--sqlite-db", default="data_preparation/home_reports.db")
-    parser.add_argument("--chroma-dir", default="data_preparation/chroma_db")
-    return parser.parse_args()
+DEFAULT_LAYOUT_PKL = DATA_PREPARATION_DIR / "example_layout.pkl"
+# Script config (edit here when needed).
+LAYOUT_PKL_PATH = DEFAULT_LAYOUT_PKL
+SOURCE_NAME: str | None = None
+DOCUMENT_ID: str | None = None
+SKIP_SUMMARIES = False
+SKIP_EMBEDDINGS = False
+SQLITE_DB_PATH = "data_preparation/home_reports.db"
+CHROMA_DIR = "data_preparation/chroma_db"
 
 
 def sha256_file(path: Path) -> str:
@@ -50,42 +37,17 @@ def sha256_file(path: Path) -> str:
     return hasher.hexdigest()
 
 
-def choose_pdf_from_reports_dir(reports_dir: Path) -> Path:
-    if not reports_dir.exists() or not reports_dir.is_dir():
-        raise FileNotFoundError(f"Reports folder not found: {reports_dir}")
-
-    pdf_files = sorted(reports_dir.glob("*.pdf"))
-    if not pdf_files:
-        raise FileNotFoundError(f"No PDF files found in reports folder: {reports_dir}")
-
-    print("Available reports:")
-    for idx, pdf in enumerate(pdf_files, start=1):
-        print(f"{idx}. {pdf.name}")
-
-    while True:
-        choice = input("Pick a report by number: ").strip()
-        if not choice.isdigit():
-            print("Please enter a number.")
-            continue
-
-        number = int(choice)
-        if number < 1 or number > len(pdf_files):
-            print(f"Please choose a number between 1 and {len(pdf_files)}.")
-            continue
-        return pdf_files[number - 1]
-
-
 def build_document_record(
-    pdf_path: Path,
+    source_name: str,
     layout,
+    file_sha256: str,
     document_id: str | None = None,
-    file_sha256: str | None = None,
 ) -> lo.DocumentRecord:
     return lo.DocumentRecord(
         document_id=document_id or str(uuid4()),
         schema_version=lo.SCHEMA_VERSION,
-        file_name=pdf_path.name,
-        file_sha256=file_sha256 or sha256_file(pdf_path),
+        file_name=source_name,
+        file_sha256=file_sha256,
         page_count=len(layout.pages or []),
         created_at=datetime.now(tz=timezone.utc).isoformat(),
     )
@@ -104,19 +66,15 @@ def validate_records(
 
 
 def main() -> None:
-    args = parse_args()
-    pdf_path = Path(args.pdf_path) if args.pdf_path else choose_pdf_from_reports_dir(DEFAULT_REPORTS_DIR)
-    if not pdf_path.exists():
-        raise FileNotFoundError(f"PDF not found: {pdf_path}")
+    layout_pkl_path = Path(LAYOUT_PKL_PATH)
+    if not layout_pkl_path.exists():
+        raise FileNotFoundError(f"Layout pkl not found: {layout_pkl_path}")
 
-    if not AZURE_LANG_ENDPOINT or not AZURE_LANG_API_KEY:
-        raise RuntimeError("Missing Azure Language Service credentials.")
-
-    sqlite_store = SQLiteStore(args.sqlite_db)
+    sqlite_store = SQLiteStore(SQLITE_DB_PATH)
     sqlite_store.ensure_schema()
 
-    pdf_sha256 = sha256_file(pdf_path)
-    processing_status = sqlite_store.get_document_processing_status(pdf_sha256)
+    layout_sha256 = sha256_file(layout_pkl_path)
+    processing_status = sqlite_store.get_document_processing_status(layout_sha256)
     if processing_status and processing_status["canonical_exists"]:
         print(
             json.dumps(
@@ -133,28 +91,19 @@ def main() -> None:
         )
         return
 
-    client = DocumentIntelligenceClient(
-        endpoint=AZURE_LANG_ENDPOINT,
-        credential=AzureKeyCredential(AZURE_LANG_API_KEY),
-    )
-
-    doc_bytes = pdf_path.read_bytes()
-    poller = client.begin_analyze_document(
-        model_id="prebuilt-layout",
-        body=AnalyzeDocumentRequest(bytes_source=doc_bytes),
-        output=["figures"],
-    )
-    layout = poller.result()
+    with layout_pkl_path.open("rb") as fp:
+        layout = pickle.load(fp)
 
     existing_document_id = None
     if processing_status and not processing_status["canonical_exists"]:
         existing_document_id = processing_status["document_id"]
 
+    source_name = SOURCE_NAME or layout_pkl_path.name
     document = build_document_record(
-        pdf_path,
-        layout,
-        args.document_id or existing_document_id,
-        file_sha256=pdf_sha256,
+        source_name=source_name,
+        layout=layout,
+        file_sha256=layout_sha256,
+        document_id=DOCUMENT_ID or existing_document_id,
     )
 
     processor = LayoutProcessor(layout=layout, document_id=document.document_id)
@@ -171,14 +120,14 @@ def main() -> None:
     sqlite_store.upsert_sections(sections)
     sqlite_store.upsert_paragraphs(paragraphs)
 
-    if not args.skip_summaries:
+    if not SKIP_SUMMARIES:
         summarizer = SectionSummarizer()
         summarizer.summarize_sections(sections, section_text_map)
         sqlite_store.upsert_sections(sections)
 
-    if not args.skip_embeddings:
+    if not SKIP_EMBEDDINGS:
         embedding_client = EmbeddingClient()
-        chroma_store = ChromaStore(args.chroma_dir)
+        chroma_store = ChromaStore(CHROMA_DIR)
         vectors_by_id, token_count_by_id, embedding_model = embedding_client.embed_paragraphs(paragraphs)
 
         section_order_by_id = {section.section_id: section.section_order for section in sections}
@@ -197,10 +146,12 @@ def main() -> None:
 
     summary = {
         "document_id": document.document_id,
+        "source": source_name,
+        "layout_pkl": str(layout_pkl_path),
         "sections": len(sections),
         "paragraphs": len(paragraphs),
-        "summaries_enabled": not args.skip_summaries,
-        "embeddings_enabled": not args.skip_embeddings,
+        "summaries_enabled": not SKIP_SUMMARIES,
+        "embeddings_enabled": not SKIP_EMBEDDINGS,
     }
     print(json.dumps(summary, indent=2))
 

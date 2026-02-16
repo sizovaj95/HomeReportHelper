@@ -1,3 +1,5 @@
 .env
 reports
 .venv
+__pycache__
+*.db

@@ -1,4 +1,7 @@
 azure-ai-documentintelligence
 azure-core
 pandas
-dotenv
+python-dotenv
+pydantic
+openai
+chromadb
