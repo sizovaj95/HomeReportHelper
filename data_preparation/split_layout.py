@@ -3,7 +3,7 @@ from collections import defaultdict
 
 from azure.ai.documentintelligence.models import AnalyzeResult, DocumentTable
 
-import layout_objects as lo
+from data_preparation import layout_objects as lo
 
 
 ID_PATTERN = r"\/([a-z]{1,15})\/(\d{1,5})$"
@@ -12,8 +12,8 @@ TABLES = "tables"
 SECTIONS = "sections"
 
 HEADING_ROLES = {"title", "heading"}
-SHORT_CHAR_THRESHOLD = 40
-SHORT_WORD_THRESHOLD = 8
+MIN_EMBEDDING_CHUNK_TOKENS = 80
+MAX_EMBEDDING_CHUNK_TOKENS = 350
 
 
 class LayoutElementId:
@@ -39,11 +39,12 @@ class LayoutProcessor:
 
         self.section_records: list[lo.SectionRecord] = []
         self.paragraph_records: list[lo.ParagraphRecord] = []
+        self._token_encoder = self._load_token_encoder()
 
     def process(self) -> tuple[list[lo.SectionRecord], list[lo.ParagraphRecord]]:
         self.build_raw_records()
-        self.merge_short_paragraphs_within_section()
-        self.merge_heading_only_sections()
+        self.merge_paragraphs_for_embedding_chunks()
+        self.merge_sparse_sections()
         self.finalize_ordering()
         return self.section_records, self.paragraph_records
 
@@ -172,41 +173,64 @@ class LayoutProcessor:
 
         return "\n".join(lines).strip()
 
-    def merge_short_paragraphs_within_section(self) -> None:
+    def merge_paragraphs_for_embedding_chunks(self) -> None:
         para_map = {p.paragraph_id: p for p in self.paragraph_records}
 
         for section in self.section_records:
-            changed = True
-            while changed:
-                changed = False
-                for idx, paragraph_id in enumerate(list(section.paragraph_ids)):
-                    paragraph = para_map.get(paragraph_id)
-                    if paragraph is None:
+            section_paragraph_ids: list[str] = []
+            idx = 0
+            while idx < len(section.paragraph_ids):
+                paragraph_id = section.paragraph_ids[idx]
+                paragraph = para_map.get(paragraph_id)
+                if paragraph is None:
+                    idx += 1
+                    continue
+
+                if not self._is_body_text_paragraph(paragraph):
+                    section_paragraph_ids.append(paragraph_id)
+                    idx += 1
+                    continue
+
+                # Natural-size paragraph chunk stays as-is.
+                if self._is_naturally_sized_chunk(paragraph.text):
+                    section_paragraph_ids.append(paragraph_id)
+                    idx += 1
+                    continue
+
+                next_idx = idx + 1
+                while next_idx < len(section.paragraph_ids):
+                    next_paragraph_id = section.paragraph_ids[next_idx]
+                    next_paragraph = para_map.get(next_paragraph_id)
+                    if next_paragraph is None:
+                        next_idx += 1
                         continue
 
-                    if not self._is_merge_candidate(paragraph):
-                        continue
+                    if not self._is_body_text_paragraph(next_paragraph):
+                        break
 
-                    target_idx = self._find_merge_target_index(section, idx, para_map)
-                    if target_idx is None:
-                        continue
+                    merged_text = self._join_text(paragraph.text, next_paragraph.text)
+                    if self._token_count(merged_text) > MAX_EMBEDDING_CHUNK_TOKENS:
+                        break
 
-                    target_id = section.paragraph_ids[target_idx]
-                    target = para_map[target_id]
+                    paragraph.text = merged_text
+                    paragraph.pages = sorted(set(paragraph.pages + next_paragraph.pages))
+                    paragraph.layout_refs.extend(next_paragraph.layout_refs)
+                    paragraph.merged_from_ids.extend(next_paragraph.merged_from_ids)
 
-                    target.text = self._join_text(target.text, paragraph.text)
-                    target.pages = sorted(set(target.pages + paragraph.pages))
-                    target.layout_refs.extend(paragraph.layout_refs)
-                    target.merged_from_ids.extend(paragraph.merged_from_ids)
+                    del para_map[next_paragraph_id]
+                    next_idx += 1
 
-                    section.paragraph_ids.pop(idx)
-                    del para_map[paragraph_id]
-                    changed = True
-                    break
+                    if self._is_naturally_sized_chunk(paragraph.text):
+                        break
+
+                section_paragraph_ids.append(paragraph_id)
+                idx = next_idx
+
+            section.paragraph_ids = section_paragraph_ids
 
         self.paragraph_records = [p for p in self.paragraph_records if p.paragraph_id in para_map]
 
-    def merge_heading_only_sections(self) -> None:
+    def merge_sparse_sections(self) -> None:
         if not self.section_records:
             return
 
@@ -217,14 +241,14 @@ class LayoutProcessor:
             body_paragraphs = [
                 para_map[pid]
                 for pid in section.paragraph_ids
-                if pid in para_map and not para_map[pid].is_heading_like
+                if pid in para_map and self._is_body_text_paragraph(para_map[pid])
             ]
 
-            if body_paragraphs:
+            if len(body_paragraphs) > 1:
                 idx += 1
                 continue
 
-            section.is_heading_only_original = True
+            section.is_heading_only_original = len(body_paragraphs) == 0
 
             if len(self.section_records) == 1:
                 idx += 1
@@ -238,9 +262,13 @@ class LayoutProcessor:
                 for pid in section.paragraph_ids
                 if pid in para_map and para_map[pid].is_heading_like and para_map[pid].text
             ]
+            if section.title:
+                heading_texts.append(section.title)
 
             target.merged_from_section_ids.append(section.section_id)
             target.inherited_headings.extend(heading_texts)
+            if target.title is None and section.title:
+                target.title = section.title
 
             # Move all paragraphs to target section and keep document order.
             if target_idx > idx:
@@ -329,41 +357,33 @@ class LayoutProcessor:
             return False
         return text.isupper()
 
-    def _is_merge_candidate(self, paragraph: lo.ParagraphRecord) -> bool:
-        if paragraph.kind != lo.PARAGRAPH_KIND_TEXT:
-            return False
-        if paragraph.is_heading_like:
-            return False
-
-        text = (paragraph.text or "").strip()
-        if not text:
-            return True
-
-        return len(text) < SHORT_CHAR_THRESHOLD or len(text.split()) < SHORT_WORD_THRESHOLD
-
-    def _find_merge_target_index(
-        self,
-        section: lo.SectionRecord,
-        source_idx: int,
-        para_map: dict[str, lo.ParagraphRecord],
-    ) -> int | None:
-        # Prefer previous compatible neighbor, otherwise next.
-        previous_idx = source_idx - 1
-        if previous_idx >= 0:
-            previous_para = para_map.get(section.paragraph_ids[previous_idx])
-            if previous_para and self._is_compatible_merge_target(previous_para):
-                return previous_idx
-
-        next_idx = source_idx + 1
-        if next_idx < len(section.paragraph_ids):
-            next_para = para_map.get(section.paragraph_ids[next_idx])
-            if next_para and self._is_compatible_merge_target(next_para):
-                return next_idx
-
-        return None
-
-    def _is_compatible_merge_target(self, paragraph: lo.ParagraphRecord) -> bool:
+    def _is_body_text_paragraph(self, paragraph: lo.ParagraphRecord) -> bool:
         return paragraph.kind == lo.PARAGRAPH_KIND_TEXT and not paragraph.is_heading_like
+
+    def _is_naturally_sized_chunk(self, text: str) -> bool:
+        return self._token_count((text or "").strip()) >= MIN_EMBEDDING_CHUNK_TOKENS
+
+    def _load_token_encoder(self):
+        try:
+            import tiktoken
+        except ModuleNotFoundError:
+            return None
+
+        try:
+            return tiktoken.get_encoding("cl100k_base")
+        except Exception:
+            return None
+
+    def _token_count(self, text: str) -> int:
+        clean_text = (text or "").strip()
+        if not clean_text:
+            return 0
+
+        if self._token_encoder is not None:
+            return len(self._token_encoder.encode(clean_text))
+
+        # Fallback approximation when tokenizer dependency is unavailable.
+        return len(clean_text.split())
 
     def _join_text(self, base_text: str, append_text: str) -> str:
         if not base_text:

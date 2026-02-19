@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import layout_objects as lo
+from data_preparation import layout_objects as lo
 
 
 class ChromaStore:

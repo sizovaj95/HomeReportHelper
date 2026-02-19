@@ -1,0 +1,277 @@
+{
+  "schema_version": "1.0",
+  "file_name": "LochburnGardensGlasgow.pdf",
+  "generated_at": "2026-02-19T08:55:40.677085+00:00",
+  "model_used": "gpt-4.1-mini",
+  "document_id": "cbbc407e-a485-4a2c-82d6-e84d7ea77d7a",
+  "property_address": {
+    "value": "Flat 3/2 10 Lochburn Gardens Glasgow G20 0SL",
+    "status": "found",
+    "found_pages": [
+      4,
+      29,
+      33,
+      41
+    ],
+    "candidate_pages": [],
+    "evidence_paragraphs": [
+      {
+        "paragraph_id": "par_00257",
+        "page": 33,
+        "text": "Property address | Flat 3/2\n | 10 Lochburn Gardens\nGlasgow\nG20 0SL",
+        "relevance_note": "Retrieved via vector"
+      },
+      {
+        "paragraph_id": "par_00018",
+        "page": 4,
+        "text": "Surveyor Reference | GG1925\n | \nCustomer | Miss. Shirley MacWilliam\n | \nSelling address | Flat 3/2\n10 Lochburn Gardens\nGlasgow\nG20 0SL\n | \nDate of Inspection | 23/01/2026\n | \nPrepared by | Fraser Rowand, MRICS\nGlasgow North - Allied Surveyors Scotland Ltd",
+        "relevance_note": "Retrieved via vector"
+      },
+      {
+        "paragraph_id": "par_00202",
+        "page": 29,
+        "text": "| Mortgage Valuation Report\nProperty: | Flat 3/2 10 Lochburn Gardens Glasgow G20 0SL | Client: Miss. Shirley MacWilliam Tenure: Ownership\nDate of Inspection: | 23/01/2026 | Reference: | GG1925/FR",
+        "relevance_note": "Retrieved via vector"
+      },
+      {
+        "paragraph_id": "par_00337",
+        "page": 41,
+        "text": "Property Address\nFlat 3/2 10 Lochburn Gardens Glasgow G20 0SL Shirley MacWilliam 19/01/2026\nSeller(s)\nCompletion date of property questionnaire\nNote for sellers",
+        "relevance_note": "Retrieved via vector"
+      }
+    ],
+    "confidence": 1.0
+  },
+  "property_age": {
+    "value": "approximately 14 years old",
+    "status": "found",
+    "found_pages": [
+      12,
+      29
+    ],
+    "candidate_pages": [],
+    "evidence_paragraphs": [
+      {
+        "paragraph_id": "par_00209",
+        "page": 29,
+        "text": "2.1 Age:\nThe property is approximately 14 years old.\nThe property is a purpose-built split level flat located over the 3rd and 4th floors. Contained within a five-storey block containing eight flats in total.\n3.0",
+        "relevance_note": "Retrieved via vector"
+      },
+      {
+        "paragraph_id": "par_00119",
+        "page": 12,
+        "text": "Description | The property is a purpose-built split level flat located over the 3rd and 4th floors. Contained within a five-storey block containing eight flats in total. Featuring a basement car park and secure entry system.\nAccommodation | Third Floor: hallway; bedroom one (front) with en-suite off (internal); bedroom two (rear); bedroom three (front); study (rear) and bathroom, with WC (internal). Fourth floor: landing; open plan kitchen living room (front to rear).\nGross internal floor area (m2) | The gross internal floor area of the property is approximately 81 m2.\nNeighbourhood and location | The subjects are located within the Maryhill district of Glasgow which lies to the north west of the city centre. The immediately surrounding area has been developed with properties of varying age and character and all usual amenities and transport links are available nearby. The property overlooks the Forth and Clyde canal.\nAge | The property is approximately 14 years old.\nWeather | At the time of the inspection, the weather conditions were dry and overcast.\nChimney stacks | Not applicable.",
+        "relevance_note": "Retrieved via keyword"
+      }
+    ],
+    "confidence": null
+  },
+  "property_epc": {
+    "value": "band C (71)",
+    "status": "found",
+    "found_pages": [
+      34
+    ],
+    "candidate_pages": [],
+    "evidence_paragraphs": [
+      {
+        "paragraph_id": "par_00277",
+        "page": 34,
+        "text": "Energy Efficiency Rating\nThis graph shows the current efficiency of your home, taking into account both energy efficiency and fuel costs. The higher this rating, the lower your fuel bills are likely to be.\nYour current rating is band C (71). The average rating for EPCs in Scotland is band D (61).\nThe potential rating shows the effect of undertaking all of the improvement measures listed within your recommendations report.",
+        "relevance_note": "Retrieved via vector"
+      }
+    ],
+    "confidence": 1.0
+  },
+  "council_tax_code": {
+    "value": "E",
+    "status": "found",
+    "found_pages": [
+      41
+    ],
+    "candidate_pages": [],
+    "evidence_paragraphs": [
+      {
+        "paragraph_id": "par_00342",
+        "page": 41,
+        "text": "1. | Length of ownership\n | How long have you owned the property? Since May 2011\n2. | Council tax\n | Which Council Tax band is your property in? (Please circle) [ ]A [ ]B [ ]C [ ]D [x]E [ ]F [ ]G [ ]H :selected:\n3. | Parking\n | What are the arrangements for parking at your property?\n(Please tick all that apply)\nGarage [x] :selected:\nAllocated parking space []\n:unselected:\nDriveway [] :unselected:\nShared parking [] :unselected:\nOn street [] :unselected:\nResident permit [] :unselected:\nMetered parking [] :unselected: Other (please specify):",
+        "relevance_note": "Retrieved via vector"
+      }
+    ],
+    "confidence": 1.0
+  },
+  "recommended_efficiency_measures": {
+    "value": [
+      "Replace boiler with new condensing boiler"
+    ],
+    "status": "found",
+    "found_pages": [
+      34,
+      36
+    ],
+    "candidate_pages": [],
+    "evidence_paragraphs": [
+      {
+        "paragraph_id": "par_00305",
+        "page": 36,
+        "text": "Recommended measures | Indicative cost | Typical saving per year | Rating after improvement\nEnergy | Environment\n1 Replace boiler with new condensing boiler | £2,200 - £3,500 | £517 | B 82 | B 85",
+        "relevance_note": "Retrieved via vector"
+      },
+      {
+        "paragraph_id": "par_00286",
+        "page": 34,
+        "text": "Recommended measures | Indicative cost | Typical savings over 3 years\n1 Condensing boiler | £2,200 - £3,500 | £1551.00",
+        "relevance_note": "Retrieved via vector"
+      }
+    ],
+    "confidence": 1.0
+  },
+  "window_glazing": {
+    "value": "Fully double glazed",
+    "status": "found",
+    "found_pages": [
+      13,
+      35
+    ],
+    "candidate_pages": [],
+    "evidence_paragraphs": [
+      {
+        "paragraph_id": "par_00292",
+        "page": 35,
+        "text": "Element | Description | Energy Efficiency | Environmental\nWalls | System built, as built, insulated (assumed) |  | \nRoof | Flat, insulated |  | \nFloor | (another dwelling below) | - | -\nWindows | Fully double glazed |  | \nMain heating | Boiler and radiators, mains gas |  | \nMain heating controls | Programmer, room thermostat and TRVs |  | \nSecondary heating | None | - | -\nHot water | Electric immersion, standard tariff |  | \nLighting | Good lighting efficiency |  |",
+        "relevance_note": "Retrieved via vector"
+      },
+      {
+        "paragraph_id": "par_00121",
+        "page": 13,
+        "text": "Roofing including roof space | The roof is of flat or near flat design. It is understood to be overlaid on a modern membrane material. Limited sight was available to any of the roof coverings and there are no roof spaces to inspect due to the roof construction type.\nFlat roofs were visually inspected from vantage points within the property and where safe and reasonable to do so from a 3m ladder externally. Flat roofs have a limited life and depending on their age and quality of workmanship can fail at any time. Roofs are prone to water penetration during adverse weather but it is not always possible for surveyors to identify this likelihood in good or dry weather. All roofs should be inspected and repaired by reputable tradesmen on an annual basis and especially after storms.\nRainwater fittings | The rainwater fittings at the property comprise parapet gutters and uPVC gutters, with uPVC downpipes installed throughout. These components are designed to effectively channel rainwater away from the building, helping to protect the structure from water ingress and related damage. Visually inspected.\nMain walls | The main walls are believed to be of concrete frame construction with timber framed infill panels clad externally with smooth rendering and timber panelling.\nVisually inspected with the aid of binoculars where required. Foundations and concealed parts were not exposed or inspected.\nWindows, external doors and joinery | The property features a mix of window types and materials, including windows constructed from both timber and uPVC. The windows are double glazed and include a combination of original and replacement units throughout the property. Random windows were opened and closed where possible.\nExternal doors to the property are of mixed materials, including timber, uPVC, and glazed types. Internal and external doors were opened and closed where keys were available.\nExternal joinery elements, such as soffits and fascias, are made of timber. These components were inspected using binoculars. Visually inspected.\nExternal decorations | The external decorations at the property consist of painted surfaces. The external decorations were visually inspected.\nConservatories / porches | Not applicable.\nCommunal areas | There is a communal hall and stairwell giving access to all flats within the building. Access is obtained via timber and glazed doors. Circulation areas visually inspected.",
+        "relevance_note": "Retrieved via keyword"
+      }
+    ],
+    "confidence": 1.0
+  },
+  "potential_problems": {
+    "value": [],
+    "status": "not_found",
+    "found_pages": [
+      18,
+      19,
+      20,
+      21,
+      23
+    ],
+    "candidate_pages": [
+      18,
+      19,
+      20,
+      21,
+      23
+    ],
+    "evidence_paragraphs": [
+      {
+        "paragraph_id": "par_00132",
+        "page": 18,
+        "text": "2. CONDITION\nThis section identifies problems and tells you about the urgency of any repairs by using one of the above 3 categories:",
+        "relevance_note": "Retrieved via vector"
+      },
+      {
+        "paragraph_id": "par_00158",
+        "page": 21,
+        "text": "Internal decorations\nRepair category: | :selected: 1\nNotes: | No significant defects noted aside from general wear and tear.",
+        "relevance_note": "Retrieved via vector"
+      },
+      {
+        "paragraph_id": "par_00134",
+        "page": 18,
+        "text": "Category 3 | Category 2 | Category 1\nUrgent repairs or replacement are needed now. Failure to deal with them may cause problems to other parts of the property or cause a safety hazard. Estimates for repairs or replacement are needed now. | Repairs or replacement requiring future attention, but estimates are still advised. | No immediate action or repair is needed.",
+        "relevance_note": "Retrieved via vector"
+      },
+      {
+        "paragraph_id": "par_00166",
+        "page": 23,
+        "text": "Category 3 | Category 2 | Category 1\nUrgent repairs or replacement are needed now. Failure to deal with them may cause problems to other parts of the property or cause a safety hazard. Estimates for repairs or replacement are needed now. | Repairs or replacement requiring future attention, but estimates are still advised. | No immediate action or repair is needed.",
+        "relevance_note": "Retrieved via vector"
+      },
+      {
+        "paragraph_id": "par_00140",
+        "page": 19,
+        "text": "Category 3 | Category 2 | Category 1\nUrgent repairs or replacement are needed now. Failure to deal with them may cause problems to other parts of the property or cause a safety hazard. Estimates for repairs or replacement are needed now. | Repairs or replacement requiring future attention, but estimates are still advised. | No immediate action or repair is needed.",
+        "relevance_note": "Retrieved via vector"
+      },
+      {
+        "paragraph_id": "par_00147",
+        "page": 20,
+        "text": "Category 3 | Category 2 | Category 1\nUrgent repairs or replacement are needed now. Failure to deal with them may cause problems to other parts of the property or cause a safety hazard. Estimates for repairs or replacement are needed now. | Repairs or replacement requiring future attention, but estimates are still advised. | No immediate action or repair is needed.",
+        "relevance_note": "Retrieved via vector"
+      }
+    ],
+    "confidence": 0.0
+  },
+  "additional_costs": {
+    "value": [
+      "Additional fees will be charged for subsequent inspections and Reports.",
+      "An additional fee may be incurred by the Purchaser if a significant amount of documentation is provided to the Surveyors during conveyancing, agreed in writing.",
+      "In case of cancellation by the Seller after inspection but before report issuance, an invoice of 80% of the agreed fee may be raised.",
+      "Expenses reasonably incurred and any fee due in case of cancellation are not refunded."
+    ],
+    "status": "found",
+    "found_pages": [
+      5,
+      7
+    ],
+    "candidate_pages": [],
+    "evidence_paragraphs": [
+      {
+        "paragraph_id": "par_00055",
+        "page": 7,
+        "text": "1.7 PAYMENT\nThe Surveyors are entitled to refrain from delivering the Report to anyone until the fee and other charges for it notified to the Seller have been paid. Additional fees will be charged for subsequent inspections and Reports.",
+        "relevance_note": "Retrieved via vector"
+      },
+      {
+        "paragraph_id": "par_00024",
+        "page": 5,
+        "text": "Once the Seller has conditionally accepted an offer to purchase made in writing, the Purchaser's lender or conveyancer may request that the Surveyors provide general comment on standard appropriate supplementary documentation. In the event of a significant amount of documentation being provided to the Surveyors, an additional fee may be incurred by the Purchaser. Any additional fee will be agreed in writing.\nIf information is provided to the Surveyors during the conveyancing process which materially affects the valuation stated in the Report and generic Mortgage Valuation Report, the Surveyors reserve the right to reconsider the valuation. Where the Surveyors require to amend the valuation in consequence of such information, they will issue an amended Report and generic Mortgage Valuation Report to the Seller. It is the responsibility of the Seller to ensure that the amended Report and generic Mortgage Valuation Report are transmitted to every prospective Purchaser.",
+        "relevance_note": "Retrieved via vector"
+      },
+      {
+        "paragraph_id": "par_00060",
+        "page": 7,
+        "text": "In the case of cancellation or the inspection not proceeding, the Surveyor will refund any fees paid by the Seller for the inspection and Report, except for\nexpenses reasonably incurred and any fee due in light of the final paragraph of this section.\nIn the case of cancellation by the Seller, for whatever reason, after the inspection has taken place but before a written report is issued, the Surveyor will be entitled to raise an Invoice equivalent to 80% of the agreed fee.",
+        "relevance_note": "Retrieved via vector"
+      }
+    ],
+    "confidence": 1.0
+  },
+  "special_building_notes": {
+    "value": [],
+    "status": "not_found",
+    "found_pages": [],
+    "candidate_pages": [],
+    "evidence_paragraphs": [],
+    "confidence": null
+  },
+  "market_value": {
+    "value": "£190,000",
+    "status": "found",
+    "found_pages": [
+      26,
+      30
+    ],
+    "candidate_pages": [],
+    "evidence_paragraphs": [
+      {
+        "paragraph_id": "par_00192",
+        "page": 26,
+        "text": "Valuation (£) and market comments\n£190,000\nThe market value for the outright ownership interest of the property described in the report is £190,000 (One Hundred And Ninety Thousand Pounds Sterling).\nThis figure assumes vacant possession and that the property is unaffected by any adverse planning proposals, onerous burdens, Title restrictions or servitude rights.",
+        "relevance_note": "Retrieved via vector"
+      },
+      {
+        "paragraph_id": "par_00240",
+        "page": 30,
+        "text": "12.0 | VALUATION On the assumption of vacant possession and that the property is unaffected by any adverse planning proposals, onerous burdens, title restrictions or servitude rights. It is assumed that all necessary Local Authority consents, which may have been required, have been sought and obtained. No investigation of any contamination on, under or within the property has been made as we consider such matters to be outwith the scope of this report. All property built prior to the year 2000 may contain asbestos in one or more of its components or fittings. It is impossible to identify without a test. It is beyond the scope of this inspection to test for asbestos and future occupants should be advised that if they have any concerns then they should ask for a specialist to undertake appropriate tests.\n12.1 | Market Value in present condition (£): | £190,000 | The market value for the outright ownership interest of the property described in the report is £190,000 (One Hundred And Ninety Thousand Pounds Sterling). This figure assumes vacant possession and that the property is unaffected by any adverse planning proposals, onerous burdens, Title restrictions or servitude rights.",
+        "relevance_note": "Retrieved via vector"
+      }
+    ],
+    "confidence": null
+  }
+}

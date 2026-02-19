@@ -1,17 +1,18 @@
 from __future__ import annotations
 
+import asyncio
 import os
-import time
 
 from dotenv import load_dotenv
 
-import layout_objects as lo
+from data_preparation import layout_objects as lo
 
 
 load_dotenv()
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 OPENAI_CHAT_MODEL = os.getenv("OPENAI_CHAT_MODEL", "gpt-4o-mini")
+OPENAI_SUMMARY_MAX_CONCURRENCY = int(os.getenv("OPENAI_SUMMARY_MAX_CONCURRENCY", "8"))
 
 
 SYSTEM_PROMPT = (
@@ -26,9 +27,14 @@ SYSTEM_PROMPT = (
 
 
 class SectionSummarizer:
-    def __init__(self, model: str = OPENAI_CHAT_MODEL, max_retries: int = 3):
+    def __init__(
+        self,
+        model: str = OPENAI_CHAT_MODEL,
+        max_retries: int = 3,
+        max_concurrency: int = OPENAI_SUMMARY_MAX_CONCURRENCY,
+    ):
         try:
-            from openai import OpenAI
+            from openai import AsyncOpenAI
         except ModuleNotFoundError as exc:  # pragma: no cover
             raise RuntimeError("openai package is required for summaries.") from exc
 
@@ -37,16 +43,17 @@ class SectionSummarizer:
 
         self.model = model
         self.max_retries = max_retries
-        self.client = OpenAI(api_key=OPENAI_API_KEY)
+        self.max_concurrency = max(1, max_concurrency)
+        self.client = AsyncOpenAI(api_key=OPENAI_API_KEY)
 
-    def summarize(self, section_text: str) -> str:
+    async def summarize(self, section_text: str) -> str:
         content = section_text.strip()
         if not content:
             return ""
 
         for attempt in range(1, self.max_retries + 1):
             try:
-                response = self.client.chat.completions.create(
+                response = await self.client.chat.completions.create(
                     model=self.model,
                     temperature=0,
                     messages=[
@@ -66,14 +73,29 @@ class SectionSummarizer:
             except Exception:
                 if attempt == self.max_retries:
                     raise
-                time.sleep(0.6 * attempt)
+                await asyncio.sleep(0.6 * attempt)
 
         return ""
+
+    async def _summarize_sections_async(
+        self,
+        sections: list[lo.SectionRecord],
+        section_text_map: dict[str, str],
+    ) -> list[str]:
+        semaphore = asyncio.Semaphore(self.max_concurrency)
+
+        async def _summarize_one(section: lo.SectionRecord) -> str:
+            async with semaphore:
+                return await self.summarize(section_text_map.get(section.section_id, ""))
+
+        tasks = [_summarize_one(section) for section in sections]
+        return await asyncio.gather(*tasks)
 
     def summarize_sections(
         self,
         sections: list[lo.SectionRecord],
         section_text_map: dict[str, str],
     ) -> None:
-        for section in sections:
-            section.summary = self.summarize(section_text_map.get(section.section_id, ""))
+        summaries = asyncio.run(self._summarize_sections_async(sections, section_text_map))
+        for section, summary in zip(sections, summaries):
+            section.summary = summary

@@ -1,9 +1,10 @@
 import json
 import sqlite3
 from dataclasses import asdict
+from datetime import datetime, timezone
 from pathlib import Path
 
-import layout_objects as lo
+from data_preparation import layout_objects as lo
 
 
 class SQLiteStore:
@@ -75,9 +76,20 @@ class SQLiteStore:
                     FOREIGN KEY(document_id) REFERENCES documents(document_id)
                 );
 
+                CREATE TABLE IF NOT EXISTS document_processing_status (
+                    document_id TEXT PRIMARY KEY,
+                    canonical_ready INTEGER NOT NULL DEFAULT 0,
+                    summaries_ready INTEGER NOT NULL DEFAULT 0,
+                    embeddings_ready INTEGER NOT NULL DEFAULT 0,
+                    last_updated TEXT NOT NULL,
+                    last_error TEXT,
+                    FOREIGN KEY(document_id) REFERENCES documents(document_id)
+                );
+
                 CREATE INDEX IF NOT EXISTS idx_documents_file_sha256 ON documents(file_sha256);
                 CREATE INDEX IF NOT EXISTS idx_sections_document_id ON sections(document_id);
                 CREATE INDEX IF NOT EXISTS idx_paragraphs_document_id ON paragraphs(document_id);
+                CREATE INDEX IF NOT EXISTS idx_processing_status_document_id ON document_processing_status(document_id);
                 """
             )
 
@@ -243,6 +255,122 @@ class SQLiteStore:
             ).fetchall()
         return rows
 
+    def load_sections(self, document_id: str) -> list[lo.SectionRecord]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM sections WHERE document_id = ? ORDER BY section_order",
+                (document_id,),
+            ).fetchall()
+
+        return [
+            lo.SectionRecord(
+                section_id=row["section_id"],
+                document_id=row["document_id"],
+                section_order=row["section_order"],
+                title=row["title"],
+                summary=row["summary"],
+                boundary_source=row["boundary_source"],
+                pages=json.loads(row["pages_json"]),
+                paragraph_ids=json.loads(row["paragraph_ids_json"]),
+                merged_from_section_ids=json.loads(row["merged_from_section_ids_json"]),
+                is_heading_only_original=bool(row["is_heading_only_original"]),
+                inherited_headings=json.loads(row["inherited_headings_json"]),
+            )
+            for row in rows
+        ]
+
+    def load_paragraphs(self, document_id: str) -> list[lo.ParagraphRecord]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM paragraphs WHERE document_id = ? ORDER BY section_id, order_in_section",
+                (document_id,),
+            ).fetchall()
+
+        return [
+            lo.ParagraphRecord(
+                paragraph_id=row["paragraph_id"],
+                document_id=row["document_id"],
+                section_id=row["section_id"],
+                order_in_section=row["order_in_section"],
+                kind=row["kind"],
+                text=row["text"],
+                pages=json.loads(row["pages_json"]),
+                layout_refs=json.loads(row["layout_refs_json"]),
+                role=row["role"],
+                is_heading_like=bool(row["is_heading_like"]),
+                merged_from_ids=json.loads(row["merged_from_ids_json"]),
+                embedding_model=row["embedding_model"],
+                embedding_vector_id=row["embedding_vector_id"],
+                token_count=row["token_count"],
+            )
+            for row in rows
+        ]
+
+    def _now_iso(self) -> str:
+        return datetime.now(tz=timezone.utc).isoformat()
+
+    def set_document_processing_status(
+        self,
+        document_id: str,
+        canonical_ready: bool | None = None,
+        summaries_ready: bool | None = None,
+        embeddings_ready: bool | None = None,
+        last_error: str | None = None,
+    ) -> None:
+        with self._connect() as conn:
+            existing = conn.execute(
+                "SELECT * FROM document_processing_status WHERE document_id = ?",
+                (document_id,),
+            ).fetchone()
+
+            current_canonical = int(existing["canonical_ready"]) if existing else 0
+            current_summaries = int(existing["summaries_ready"]) if existing else 0
+            current_embeddings = int(existing["embeddings_ready"]) if existing else 0
+            current_error = existing["last_error"] if existing else None
+
+            next_canonical = current_canonical if canonical_ready is None else int(canonical_ready)
+            next_summaries = current_summaries if summaries_ready is None else int(summaries_ready)
+            next_embeddings = current_embeddings if embeddings_ready is None else int(embeddings_ready)
+            next_error = current_error if last_error is None else last_error
+
+            conn.execute(
+                """
+                INSERT INTO document_processing_status (
+                    document_id, canonical_ready, summaries_ready, embeddings_ready, last_updated, last_error
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(document_id) DO UPDATE SET
+                    canonical_ready=excluded.canonical_ready,
+                    summaries_ready=excluded.summaries_ready,
+                    embeddings_ready=excluded.embeddings_ready,
+                    last_updated=excluded.last_updated,
+                    last_error=excluded.last_error
+                """,
+                (
+                    document_id,
+                    next_canonical,
+                    next_summaries,
+                    next_embeddings,
+                    self._now_iso(),
+                    next_error,
+                ),
+            )
+
+    def get_document_processing_flags(self, document_id: str) -> dict | None:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM document_processing_status WHERE document_id = ?",
+                (document_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        return {
+            "canonical_ready": bool(row["canonical_ready"]),
+            "summaries_ready": bool(row["summaries_ready"]),
+            "embeddings_ready": bool(row["embeddings_ready"]),
+            "last_updated": row["last_updated"],
+            "last_error": row["last_error"],
+        }
+
     def find_document_by_sha256(self, file_sha256: str) -> sqlite3.Row | None:
         with self._connect() as conn:
             row = conn.execute(
@@ -284,6 +412,24 @@ class SQLiteStore:
                 "SELECT COUNT(1) AS c FROM paragraphs WHERE document_id = ?",
                 (document_id,),
             ).fetchone()["c"]
+            section_summary_count = conn.execute(
+                "SELECT COUNT(1) AS c FROM sections WHERE document_id = ? AND TRIM(summary) != ''",
+                (document_id,),
+            ).fetchone()["c"]
+            paragraph_embedding_count = conn.execute(
+                "SELECT COUNT(1) AS c FROM paragraphs WHERE document_id = ? AND embedding_vector_id IS NOT NULL",
+                (document_id,),
+            ).fetchone()["c"]
+
+        flags = self.get_document_processing_flags(document_id)
+        if flags is None:
+            flags = {
+                "canonical_ready": section_count > 0 and paragraph_count > 0,
+                "summaries_ready": section_count > 0 and section_summary_count == section_count,
+                "embeddings_ready": paragraph_embedding_count > 0,
+                "last_updated": None,
+                "last_error": None,
+            }
 
         return {
             "document_id": document_id,
@@ -292,5 +438,12 @@ class SQLiteStore:
             "created_at": row["created_at"],
             "section_count": section_count,
             "paragraph_count": paragraph_count,
+            "section_summary_count": section_summary_count,
+            "paragraph_embedding_count": paragraph_embedding_count,
             "canonical_exists": section_count > 0 and paragraph_count > 0,
+            "canonical_ready": flags["canonical_ready"],
+            "summaries_ready": flags["summaries_ready"],
+            "embeddings_ready": flags["embeddings_ready"],
+            "last_updated": flags["last_updated"],
+            "last_error": flags["last_error"],
         }

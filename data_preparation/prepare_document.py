@@ -1,29 +1,10 @@
 import argparse
-import hashlib
 import json
-import os
-from datetime import datetime, timezone
 from pathlib import Path
-from uuid import uuid4
 
-from dotenv import load_dotenv
-from azure.core.credentials import AzureKeyCredential
-from azure.ai.documentintelligence import DocumentIntelligenceClient
-from azure.ai.documentintelligence.models import AnalyzeDocumentRequest
-
-import layout_objects as lo
-from embeddings import EmbeddingClient
-from schema import DocumentRecordModel, ParagraphRecordModel, SectionRecordModel
-from split_layout import LayoutProcessor
-from storage_chroma import ChromaStore
-from storage_sqlite import SQLiteStore
-from summarize_sections import SectionSummarizer
+from data_preparation.pipeline_service import prepare_document_if_needed
 
 
-load_dotenv()
-
-AZURE_LANG_ENDPOINT = os.getenv("AZURE_LANGUAGE_SERVICE_ENDPOINT", "")
-AZURE_LANG_API_KEY = os.getenv("AZURE_LANGUAGE_SERVICE_API_KEY", "")
 DATA_PREPARATION_DIR = Path(__file__).resolve().parent
 DEFAULT_REPORTS_DIR = DATA_PREPARATION_DIR / "reports" / "pdf"
 
@@ -31,23 +12,11 @@ DEFAULT_REPORTS_DIR = DATA_PREPARATION_DIR / "reports" / "pdf"
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Prepare OCR layout into canonical records.")
     parser.add_argument("--pdf-path", default=None, help="Path to source PDF")
-    parser.add_argument("--document-id", default=None, help="Optional existing document id")
     parser.add_argument("--skip-summaries", action="store_true")
     parser.add_argument("--skip-embeddings", action="store_true")
     parser.add_argument("--sqlite-db", default="data_preparation/home_reports.db")
     parser.add_argument("--chroma-dir", default="data_preparation/chroma_db")
     return parser.parse_args()
-
-
-def sha256_file(path: Path) -> str:
-    hasher = hashlib.sha256()
-    with path.open("rb") as fp:
-        while True:
-            chunk = fp.read(1024 * 1024)
-            if not chunk:
-                break
-            hasher.update(chunk)
-    return hasher.hexdigest()
 
 
 def choose_pdf_from_reports_dir(reports_dir: Path) -> Path:
@@ -75,134 +44,29 @@ def choose_pdf_from_reports_dir(reports_dir: Path) -> Path:
         return pdf_files[number - 1]
 
 
-def build_document_record(
-    pdf_path: Path,
-    layout,
-    document_id: str | None = None,
-    file_sha256: str | None = None,
-) -> lo.DocumentRecord:
-    return lo.DocumentRecord(
-        document_id=document_id or str(uuid4()),
-        schema_version=lo.SCHEMA_VERSION,
-        file_name=pdf_path.name,
-        file_sha256=file_sha256 or sha256_file(pdf_path),
-        page_count=len(layout.pages or []),
-        created_at=datetime.now(tz=timezone.utc).isoformat(),
-    )
-
-
-def validate_records(
-    document: lo.DocumentRecord,
-    sections: list[lo.SectionRecord],
-    paragraphs: list[lo.ParagraphRecord],
-) -> None:
-    DocumentRecordModel(**document.__dict__)
-    for section in sections:
-        SectionRecordModel(**section.__dict__)
-    for paragraph in paragraphs:
-        ParagraphRecordModel(**paragraph.__dict__)
-
-
 def main() -> None:
     args = parse_args()
     pdf_path = Path(args.pdf_path) if args.pdf_path else choose_pdf_from_reports_dir(DEFAULT_REPORTS_DIR)
-    if not pdf_path.exists():
-        raise FileNotFoundError(f"PDF not found: {pdf_path}")
 
-    if not AZURE_LANG_ENDPOINT or not AZURE_LANG_API_KEY:
-        raise RuntimeError("Missing Azure Language Service credentials.")
+    result = prepare_document_if_needed(
+        pdf_path=pdf_path,
+        sqlite_db=args.sqlite_db,
+        chroma_dir=args.chroma_dir,
+        run_summaries=not args.skip_summaries,
+        run_embeddings=not args.skip_embeddings,
+    )
 
-    sqlite_store = SQLiteStore(args.sqlite_db)
-    sqlite_store.ensure_schema()
-
-    pdf_sha256 = sha256_file(pdf_path)
-    processing_status = sqlite_store.get_document_processing_status(pdf_sha256)
-    if processing_status and processing_status["canonical_exists"]:
-        print(
-            json.dumps(
-                {
-                    "status": "already_processed",
-                    "document_id": processing_status["document_id"],
-                    "file_name": processing_status["file_name"],
-                    "created_at": processing_status["created_at"],
-                    "sections": processing_status["section_count"],
-                    "paragraphs": processing_status["paragraph_count"],
-                },
-                indent=2,
-            )
+    print(
+        json.dumps(
+            {
+                "document_id": result.document_id,
+                "file_name": result.file_name,
+                "file_sha256": result.file_sha256,
+                "was_prepared_now": result.was_prepared_now,
+            },
+            indent=2,
         )
-        return
-
-    client = DocumentIntelligenceClient(
-        endpoint=AZURE_LANG_ENDPOINT,
-        credential=AzureKeyCredential(AZURE_LANG_API_KEY),
     )
-
-    doc_bytes = pdf_path.read_bytes()
-    poller = client.begin_analyze_document(
-        model_id="prebuilt-layout",
-        body=AnalyzeDocumentRequest(bytes_source=doc_bytes),
-        output=["figures"],
-    )
-    layout = poller.result()
-
-    existing_document_id = None
-    if processing_status and not processing_status["canonical_exists"]:
-        existing_document_id = processing_status["document_id"]
-
-    document = build_document_record(
-        pdf_path,
-        layout,
-        args.document_id or existing_document_id,
-        file_sha256=pdf_sha256,
-    )
-
-    processor = LayoutProcessor(layout=layout, document_id=document.document_id)
-    sections, paragraphs = processor.process()
-
-    section_text_map = {
-        section.section_id: processor.build_section_text_for_summary(section)
-        for section in sections
-    }
-
-    validate_records(document, sections, paragraphs)
-
-    sqlite_store.upsert_document(document)
-    sqlite_store.upsert_sections(sections)
-    sqlite_store.upsert_paragraphs(paragraphs)
-
-    if not args.skip_summaries:
-        summarizer = SectionSummarizer()
-        summarizer.summarize_sections(sections, section_text_map)
-        sqlite_store.upsert_sections(sections)
-
-    if not args.skip_embeddings:
-        embedding_client = EmbeddingClient()
-        chroma_store = ChromaStore(args.chroma_dir)
-        vectors_by_id, token_count_by_id, embedding_model = embedding_client.embed_paragraphs(paragraphs)
-
-        section_order_by_id = {section.section_id: section.section_order for section in sections}
-        vector_id_map = chroma_store.upsert_paragraph_vectors(
-            paragraphs=paragraphs,
-            vectors_by_paragraph_id=vectors_by_id,
-            section_order_by_id=section_order_by_id,
-        )
-
-        for paragraph in paragraphs:
-            paragraph.embedding_model = embedding_model
-            paragraph.embedding_vector_id = vector_id_map.get(paragraph.paragraph_id)
-            paragraph.token_count = token_count_by_id.get(paragraph.paragraph_id)
-
-        sqlite_store.upsert_paragraphs(paragraphs)
-
-    summary = {
-        "document_id": document.document_id,
-        "sections": len(sections),
-        "paragraphs": len(paragraphs),
-        "summaries_enabled": not args.skip_summaries,
-        "embeddings_enabled": not args.skip_embeddings,
-    }
-    print(json.dumps(summary, indent=2))
 
 
 if __name__ == "__main__":
