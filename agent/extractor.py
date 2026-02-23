@@ -1,20 +1,27 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 from datetime import datetime, timezone
+from typing import Mapping
 
 from dotenv import load_dotenv
 
 from agent import config
 from agent.graph import build_agent_graph
 from agent.graph_state import GraphState
-from agent.prompts import FIELD_SPECS, SYSTEM_PROMPT, make_user_prompt
+from agent.prompts import (
+    FIELD_SPECS,
+    SECTION_ROUTER_SYSTEM_PROMPT,
+    SYSTEM_PROMPT,
+    make_section_router_prompt,
+    make_user_prompt,
+)
 from agent.retrieval import HybridRetriever
 from agent.schema import (
     EvidenceParagraph,
     FieldResultModel,
-    ListFieldResultModel,
     PropertyReportOutputModel,
 )
 
@@ -22,10 +29,17 @@ from agent.schema import (
 load_dotenv()
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+logger = logging.getLogger(__name__)
+GREEN = "\033[92m"
+RESET = "\033[0m"
 
 
 class AgentExtractor:
-    def __init__(self, retriever: HybridRetriever, model: str = config.EXTRACTION_MODEL):
+    def __init__(
+        self,
+        retriever: HybridRetriever,
+        models: Mapping[str, str] | None = None,
+    ):
         try:
             from openai import OpenAI
         except ModuleNotFoundError as exc:  # pragma: no cover
@@ -34,17 +48,31 @@ class AgentExtractor:
         if not OPENAI_API_KEY:
             raise RuntimeError("Missing OPENAI_API_KEY for extraction.")
 
+        default_models = {
+            "EXTRACTOR_MODEL": config.EXTRACTION_MODEL,
+            "SECTION_MODEL": config.SECTION_MODEL,
+        }
+        if models:
+            default_models.update({k: v for k, v in models.items() if v})
+
+        self.models = default_models
         self.retriever = retriever
-        self.model = model
+        self.model = self.models["EXTRACTOR_MODEL"]
+        self.section_model = self.models["SECTION_MODEL"]
         self.client = OpenAI(api_key=OPENAI_API_KEY)
+        self._cached_section_overview: list[dict] | None = None
         self.graph = build_agent_graph(
             retriever=self.retriever,
             model=self.model,
+            retrieve_candidates_for_field=self._retrieve_candidates_for_field,
             extract_field_from_candidates=self._extract_field_from_candidates,
             empty_result_factory=self._empty_result,
         )
 
     def extract_report(self, document_id: str, file_name: str) -> PropertyReportOutputModel:
+        # Reset per-document cache at the beginning of each report run.
+        self._cached_section_overview = None
+
         initial_state: GraphState = {
             "document_id": document_id,
             "file_name": file_name,
@@ -74,6 +102,103 @@ class AgentExtractor:
                 document_id=document_id,
             )
         return output
+
+    def _retrieve_candidates_for_field(
+        self,
+        document_id: str,
+        field_key: str,
+        field_label: str,
+        query_hints: list[str],
+    ):
+        logger.info("%sExtracting field: %s%s", GREEN, field_key, RESET)
+        if self._cached_section_overview is None:
+            self._cached_section_overview = self.retriever.get_section_overview(document_id)
+
+        section_overview = self._cached_section_overview
+        selected_section_ids = self._select_relevant_sections(
+            field_key=field_key,
+            field_label=field_label,
+            section_overview=section_overview,
+        )
+
+        section_routed = self.retriever.retrieve_candidates_from_sections(
+            document_id=document_id,
+            section_ids=selected_section_ids,
+            query_hints=query_hints,
+        )
+        logger.info(
+            "%sField %s: section_routed candidates=%s (selected_sections=%s)%s",
+            GREEN,
+            field_key,
+            len(section_routed),
+            len(selected_section_ids),
+            RESET,
+        )
+        hybrid = self.retriever.retrieve_candidates(document_id, query_hints)
+        logger.info("%sField %s: hybrid candidates=%s%s", GREEN, field_key, len(hybrid), RESET)
+
+        merged = self._merge_candidates(section_routed, hybrid)
+        logger.info("%sField %s: merged unique candidates=%s%s", GREEN, field_key, len(merged), RESET)
+        return merged
+
+    def _select_relevant_sections(
+        self,
+        field_key: str,
+        field_label: str,
+        section_overview: list[dict],
+    ) -> list[str]:
+        if not section_overview:
+            return []
+
+        overview_text = "\n".join(
+            f"section_id={s['section_id']} | title={s['title'] or 'N/A'} | summary={s['summary'] or 'N/A'}"
+            for s in section_overview
+        )
+        allowed_ids = {s["section_id"] for s in section_overview}
+
+        try:
+            response = self.client.chat.completions.create(
+                model=self.section_model,
+                temperature=0,
+                response_format={"type": "json_object"},
+                messages=[
+                    {"role": "system", "content": SECTION_ROUTER_SYSTEM_PROMPT},
+                    {
+                        "role": "user",
+                        "content": make_section_router_prompt(
+                            field_key,
+                            field_label,
+                            overview_text,
+                        ),
+                    },
+                ],
+            )
+            content = response.choices[0].message.content or "{}"
+            parsed = self._safe_json_loads(content)
+            section_ids = parsed.get("section_ids", [])
+            if not isinstance(section_ids, list):
+                return []
+            filtered = [sid for sid in section_ids if isinstance(sid, str) and sid in allowed_ids]
+            seen = set()
+            deduped = []
+            for sid in filtered:
+                if sid in seen:
+                    continue
+                seen.add(sid)
+                deduped.append(sid)
+            return deduped[:5]
+        except Exception:
+            return []
+
+    def _merge_candidates(self, primary, fallback):
+        merged = []
+        seen = set()
+        for candidate in primary + fallback:
+            if candidate.paragraph_id in seen:
+                continue
+            seen.add(candidate.paragraph_id)
+            merged.append(candidate)
+        return merged
 
     def _extract_field_from_candidates(
         self,
@@ -139,10 +264,11 @@ class AgentExtractor:
             raw_value = parsed.get("value", [])
             if not isinstance(raw_value, list):
                 raw_value = []
-            value = [str(v).strip() for v in raw_value if str(v).strip()]
-            if not value and status == "found":
+            value_items = [str(v).strip() for v in raw_value if str(v).strip()]
+            if not value_items and status == "found":
                 status = "not_found"
-            return ListFieldResultModel(
+            value = self._to_bullet_string(value_items) if value_items else None
+            return FieldResultModel(
                 value=value,
                 status=status,
                 found_pages=found_pages,
@@ -184,6 +310,7 @@ class AgentExtractor:
         return sorted(set(out))
 
     def _empty_result(self, is_list: bool):
-        if is_list:
-            return ListFieldResultModel(status="not_found")
         return FieldResultModel(status="not_found")
+
+    def _to_bullet_string(self, items: list[str]) -> str:
+        return "\n".join(f"- {item}" for item in items if item)

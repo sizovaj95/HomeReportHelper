@@ -21,16 +21,6 @@ class FieldResultModel(BaseModel):
     evidence_paragraphs: list[EvidenceParagraph] = Field(default_factory=list)
     confidence: float | None = Field(default=None, ge=0.0, le=1.0)
 
-
-class ListFieldResultModel(BaseModel):
-    value: list[str] = Field(default_factory=list)
-    status: FieldStatus = "not_found"
-    found_pages: list[int] = Field(default_factory=list)
-    candidate_pages: list[int] = Field(default_factory=list)
-    evidence_paragraphs: list[EvidenceParagraph] = Field(default_factory=list)
-    confidence: float | None = Field(default=None, ge=0.0, le=1.0)
-
-
 class PropertyReportOutputModel(BaseModel):
     schema_version: str = "1.0"
     file_name: str
@@ -40,13 +30,18 @@ class PropertyReportOutputModel(BaseModel):
 
     property_address: FieldResultModel = Field(default_factory=FieldResultModel)
     property_age: FieldResultModel = Field(default_factory=FieldResultModel)
+    property_area: FieldResultModel = Field(default_factory=FieldResultModel)
     property_epc: FieldResultModel = Field(default_factory=FieldResultModel)
     council_tax_code: FieldResultModel = Field(default_factory=FieldResultModel)
-    recommended_efficiency_measures: ListFieldResultModel = Field(default_factory=ListFieldResultModel)
+    recommended_efficiency_measures: FieldResultModel = Field(default_factory=FieldResultModel)
     window_glazing: FieldResultModel = Field(default_factory=FieldResultModel)
-    potential_problems: ListFieldResultModel = Field(default_factory=ListFieldResultModel)
-    additional_costs: ListFieldResultModel = Field(default_factory=ListFieldResultModel)
-    special_building_notes: ListFieldResultModel = Field(default_factory=ListFieldResultModel)
+    external_walls_material: FieldResultModel = Field(default_factory=FieldResultModel)
+    internal_walls_material: FieldResultModel = Field(default_factory=FieldResultModel)
+    gas_and_boiler_notes: FieldResultModel = Field(default_factory=FieldResultModel)
+    electricity_notes: FieldResultModel = Field(default_factory=FieldResultModel)
+    potential_problems: FieldResultModel = Field(default_factory=FieldResultModel)
+    additional_costs: FieldResultModel = Field(default_factory=FieldResultModel)
+    special_building_notes: FieldResultModel = Field(default_factory=FieldResultModel)
     market_value: FieldResultModel = Field(default_factory=FieldResultModel)
 
 

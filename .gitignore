@@ -4,3 +4,4 @@ reports
 __pycache__
 *.db
 chroma_db
+output

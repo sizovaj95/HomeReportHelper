@@ -90,7 +90,13 @@ def main() -> None:
     logger.info("Stage 3/6: Initializing storage and retrieval components")
     storage = AgentStorage(config.SQLITE_DB_PATH)
     retriever = HybridRetriever(storage=storage, chroma_dir=config.CHROMA_DIR)
-    extractor = AgentExtractor(retriever=retriever, model=config.EXTRACTION_MODEL)
+    extractor = AgentExtractor(
+        retriever=retriever,
+        models={
+            "EXTRACTOR_MODEL": config.EXTRACTION_MODEL,
+            "SECTION_MODEL": config.EXTRACTION_MODEL,
+        },
+    )
 
     logger.info("Stage 4/6: Extracting required fields using grounded evidence")
     report = extractor.extract_report(

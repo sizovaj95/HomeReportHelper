@@ -12,6 +12,7 @@ from agent.prompts import FIELD_SPECS
 def build_agent_graph(
     retriever,
     model: str,
+    retrieve_candidates_for_field: Callable,
     extract_field_from_candidates: Callable,
     empty_result_factory: Callable,
 ):
@@ -43,7 +44,12 @@ def build_agent_graph(
 
         spec = FIELD_SPECS[field_key]
         try:
-            candidates = retriever.retrieve_candidates(state["document_id"], spec["queries"])
+            candidates = retrieve_candidates_for_field(
+                document_id=state["document_id"],
+                field_key=field_key,
+                field_label=spec["label"],
+                query_hints=spec["queries"],
+            )
             return {"current_candidates": candidates}
         except Exception as exc:
             errors = list(state.get("errors", []))

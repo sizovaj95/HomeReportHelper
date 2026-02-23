@@ -3,7 +3,14 @@ from __future__ import annotations
 from html import escape
 
 from agent.prompts import FIELD_SPECS
-from agent.schema import ListFieldResultModel, PropertyReportOutputModel
+from agent.schema import PropertyReportOutputModel
+
+BULLET_FORMAT_FIELDS = {
+    "recommended_efficiency_measures",
+    "potential_problems",
+    "additional_costs",
+    "special_building_notes",
+}
 
 
 def _render_pages(found_pages: list[int], candidate_pages: list[int]) -> str:
@@ -34,16 +41,18 @@ def render_html(report: PropertyReportOutputModel) -> str:
         label = spec["label"]
         result = getattr(report, field_key)
 
-        if isinstance(result, ListFieldResultModel):
-            value_str = ", ".join(result.value) if result.value else "Not found"
+        value_text = result.value if result.value else "Not found"
+        if field_key in BULLET_FORMAT_FIELDS and value_text != "Not found":
+            bullet_lines = [line.strip() for line in value_text.splitlines() if line.strip()]
+            bullet_items = [line[2:].strip() if line.startswith("- ") else line for line in bullet_lines]
+            value_block = "<ul>" + "".join(f"<li>{escape(item)}</li>" for item in bullet_items) + "</ul>"
         else:
-            value_str = result.value if result.value else "Not found"
-
+            value_block = escape(value_text)
         row = (
             "<section class='field-card'>"
             f"<h3>{escape(label)}</h3>"
             f"<div><strong>Status:</strong> {escape(result.status)}</div>"
-            f"<div><strong>Value:</strong> {escape(value_str)}</div>"
+            f"<div><strong>Value:</strong> {value_block}</div>"
             f"{_render_pages(result.found_pages, result.candidate_pages)}"
             f"{_render_evidence(result)}"
             "</section>"

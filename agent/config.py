@@ -8,6 +8,7 @@ CHROMA_DIR = str(BASE_DIR / "data_preparation" / "chroma_db")
 OUTPUT_DIR = BASE_DIR / "agent" / "output"
 
 EXTRACTION_MODEL = "gpt-4.1-mini"
+SECTION_MODEL = "gpt-4o-mini"
 RETRIEVAL_TOP_K_VECTOR = 10
 RETRIEVAL_TOP_K_KEYWORD = 15
 FINAL_CANDIDATE_LIMIT = 12
