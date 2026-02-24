@@ -17,81 +17,186 @@ class SQLiteStore:
         conn.row_factory = sqlite3.Row
         return conn
 
+    def _table_info(self, conn: sqlite3.Connection, table_name: str) -> list[sqlite3.Row]:
+        return conn.execute(f"PRAGMA table_info({table_name})").fetchall()
+
+    def _has_legacy_single_id_pk(
+        self,
+        conn: sqlite3.Connection,
+        table_name: str,
+        id_column: str,
+    ) -> bool:
+        rows = self._table_info(conn, table_name)
+        if not rows:
+            return False
+        pk_cols = [row["name"] for row in rows if int(row["pk"]) > 0]
+        return pk_cols == [id_column]
+
+    def _create_core_schema(self, conn: sqlite3.Connection) -> None:
+        conn.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS documents (
+                document_id TEXT PRIMARY KEY,
+                schema_version TEXT NOT NULL,
+                file_name TEXT NOT NULL,
+                file_sha256 TEXT NOT NULL,
+                page_count INTEGER NOT NULL,
+                created_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS sections (
+                section_id TEXT NOT NULL,
+                document_id TEXT NOT NULL,
+                section_order INTEGER NOT NULL,
+                title TEXT,
+                summary TEXT NOT NULL,
+                boundary_source TEXT NOT NULL,
+                pages_json TEXT NOT NULL,
+                paragraph_ids_json TEXT NOT NULL,
+                merged_from_section_ids_json TEXT NOT NULL,
+                is_heading_only_original INTEGER NOT NULL,
+                inherited_headings_json TEXT NOT NULL,
+                PRIMARY KEY (document_id, section_id),
+                FOREIGN KEY(document_id) REFERENCES documents(document_id)
+            );
+
+            CREATE TABLE IF NOT EXISTS paragraphs (
+                paragraph_id TEXT NOT NULL,
+                document_id TEXT NOT NULL,
+                section_id TEXT NOT NULL,
+                order_in_section INTEGER NOT NULL,
+                kind TEXT NOT NULL,
+                text TEXT NOT NULL,
+                pages_json TEXT NOT NULL,
+                layout_refs_json TEXT NOT NULL,
+                role TEXT,
+                is_heading_like INTEGER NOT NULL,
+                merged_from_ids_json TEXT NOT NULL,
+                embedding_model TEXT,
+                embedding_vector_id TEXT,
+                token_count INTEGER,
+                PRIMARY KEY (document_id, paragraph_id),
+                FOREIGN KEY(document_id) REFERENCES documents(document_id),
+                FOREIGN KEY(document_id, section_id) REFERENCES sections(document_id, section_id)
+            );
+
+            CREATE TABLE IF NOT EXISTS pipeline_runs (
+                run_id TEXT PRIMARY KEY,
+                document_id TEXT NOT NULL,
+                step TEXT NOT NULL,
+                model TEXT,
+                status TEXT NOT NULL,
+                error_message TEXT,
+                started_at TEXT NOT NULL,
+                finished_at TEXT,
+                FOREIGN KEY(document_id) REFERENCES documents(document_id)
+            );
+
+            CREATE TABLE IF NOT EXISTS document_processing_status (
+                document_id TEXT PRIMARY KEY,
+                canonical_ready INTEGER NOT NULL DEFAULT 0,
+                summaries_ready INTEGER NOT NULL DEFAULT 0,
+                embeddings_ready INTEGER NOT NULL DEFAULT 0,
+                last_updated TEXT NOT NULL,
+                last_error TEXT,
+                FOREIGN KEY(document_id) REFERENCES documents(document_id)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_documents_file_sha256 ON documents(file_sha256);
+            CREATE INDEX IF NOT EXISTS idx_sections_document_id ON sections(document_id);
+            CREATE INDEX IF NOT EXISTS idx_sections_document_order ON sections(document_id, section_order);
+            CREATE INDEX IF NOT EXISTS idx_paragraphs_document_id ON paragraphs(document_id);
+            CREATE INDEX IF NOT EXISTS idx_paragraphs_document_section_order ON paragraphs(document_id, section_id, order_in_section);
+            CREATE INDEX IF NOT EXISTS idx_processing_status_document_id ON document_processing_status(document_id);
+            """
+        )
+
+    def _migrate_sections_and_paragraphs_to_composite_keys(self, conn: sqlite3.Connection) -> None:
+        conn.executescript(
+            """
+            PRAGMA foreign_keys = OFF;
+
+            ALTER TABLE sections RENAME TO sections__legacy_single_pk;
+            ALTER TABLE paragraphs RENAME TO paragraphs__legacy_single_pk;
+
+            CREATE TABLE sections (
+                section_id TEXT NOT NULL,
+                document_id TEXT NOT NULL,
+                section_order INTEGER NOT NULL,
+                title TEXT,
+                summary TEXT NOT NULL,
+                boundary_source TEXT NOT NULL,
+                pages_json TEXT NOT NULL,
+                paragraph_ids_json TEXT NOT NULL,
+                merged_from_section_ids_json TEXT NOT NULL,
+                is_heading_only_original INTEGER NOT NULL,
+                inherited_headings_json TEXT NOT NULL,
+                PRIMARY KEY (document_id, section_id),
+                FOREIGN KEY(document_id) REFERENCES documents(document_id)
+            );
+
+            CREATE TABLE paragraphs (
+                paragraph_id TEXT NOT NULL,
+                document_id TEXT NOT NULL,
+                section_id TEXT NOT NULL,
+                order_in_section INTEGER NOT NULL,
+                kind TEXT NOT NULL,
+                text TEXT NOT NULL,
+                pages_json TEXT NOT NULL,
+                layout_refs_json TEXT NOT NULL,
+                role TEXT,
+                is_heading_like INTEGER NOT NULL,
+                merged_from_ids_json TEXT NOT NULL,
+                embedding_model TEXT,
+                embedding_vector_id TEXT,
+                token_count INTEGER,
+                PRIMARY KEY (document_id, paragraph_id),
+                FOREIGN KEY(document_id) REFERENCES documents(document_id),
+                FOREIGN KEY(document_id, section_id) REFERENCES sections(document_id, section_id)
+            );
+
+            INSERT INTO sections (
+                section_id, document_id, section_order, title, summary, boundary_source,
+                pages_json, paragraph_ids_json, merged_from_section_ids_json,
+                is_heading_only_original, inherited_headings_json
+            )
+            SELECT
+                section_id, document_id, section_order, title, summary, boundary_source,
+                pages_json, paragraph_ids_json, merged_from_section_ids_json,
+                is_heading_only_original, inherited_headings_json
+            FROM sections__legacy_single_pk;
+
+            INSERT INTO paragraphs (
+                paragraph_id, document_id, section_id, order_in_section, kind, text,
+                pages_json, layout_refs_json, role, is_heading_like,
+                merged_from_ids_json, embedding_model, embedding_vector_id, token_count
+            )
+            SELECT
+                paragraph_id, document_id, section_id, order_in_section, kind, text,
+                pages_json, layout_refs_json, role, is_heading_like,
+                merged_from_ids_json, embedding_model, embedding_vector_id, token_count
+            FROM paragraphs__legacy_single_pk;
+
+            DROP TABLE sections__legacy_single_pk;
+            DROP TABLE paragraphs__legacy_single_pk;
+
+            CREATE INDEX IF NOT EXISTS idx_sections_document_id ON sections(document_id);
+            CREATE INDEX IF NOT EXISTS idx_sections_document_order ON sections(document_id, section_order);
+            CREATE INDEX IF NOT EXISTS idx_paragraphs_document_id ON paragraphs(document_id);
+            CREATE INDEX IF NOT EXISTS idx_paragraphs_document_section_order ON paragraphs(document_id, section_id, order_in_section);
+
+            PRAGMA foreign_keys = ON;
+            """
+        )
+
     def ensure_schema(self) -> None:
         with self._connect() as conn:
-            conn.executescript(
-                """
-                CREATE TABLE IF NOT EXISTS documents (
-                    document_id TEXT PRIMARY KEY,
-                    schema_version TEXT NOT NULL,
-                    file_name TEXT NOT NULL,
-                    file_sha256 TEXT NOT NULL,
-                    page_count INTEGER NOT NULL,
-                    created_at TEXT NOT NULL
-                );
+            self._create_core_schema(conn)
 
-                CREATE TABLE IF NOT EXISTS sections (
-                    section_id TEXT PRIMARY KEY,
-                    document_id TEXT NOT NULL,
-                    section_order INTEGER NOT NULL,
-                    title TEXT,
-                    summary TEXT NOT NULL,
-                    boundary_source TEXT NOT NULL,
-                    pages_json TEXT NOT NULL,
-                    paragraph_ids_json TEXT NOT NULL,
-                    merged_from_section_ids_json TEXT NOT NULL,
-                    is_heading_only_original INTEGER NOT NULL,
-                    inherited_headings_json TEXT NOT NULL,
-                    FOREIGN KEY(document_id) REFERENCES documents(document_id)
-                );
-
-                CREATE TABLE IF NOT EXISTS paragraphs (
-                    paragraph_id TEXT PRIMARY KEY,
-                    document_id TEXT NOT NULL,
-                    section_id TEXT NOT NULL,
-                    order_in_section INTEGER NOT NULL,
-                    kind TEXT NOT NULL,
-                    text TEXT NOT NULL,
-                    pages_json TEXT NOT NULL,
-                    layout_refs_json TEXT NOT NULL,
-                    role TEXT,
-                    is_heading_like INTEGER NOT NULL,
-                    merged_from_ids_json TEXT NOT NULL,
-                    embedding_model TEXT,
-                    embedding_vector_id TEXT,
-                    token_count INTEGER,
-                    FOREIGN KEY(document_id) REFERENCES documents(document_id),
-                    FOREIGN KEY(section_id) REFERENCES sections(section_id)
-                );
-
-                CREATE TABLE IF NOT EXISTS pipeline_runs (
-                    run_id TEXT PRIMARY KEY,
-                    document_id TEXT NOT NULL,
-                    step TEXT NOT NULL,
-                    model TEXT,
-                    status TEXT NOT NULL,
-                    error_message TEXT,
-                    started_at TEXT NOT NULL,
-                    finished_at TEXT,
-                    FOREIGN KEY(document_id) REFERENCES documents(document_id)
-                );
-
-                CREATE TABLE IF NOT EXISTS document_processing_status (
-                    document_id TEXT PRIMARY KEY,
-                    canonical_ready INTEGER NOT NULL DEFAULT 0,
-                    summaries_ready INTEGER NOT NULL DEFAULT 0,
-                    embeddings_ready INTEGER NOT NULL DEFAULT 0,
-                    last_updated TEXT NOT NULL,
-                    last_error TEXT,
-                    FOREIGN KEY(document_id) REFERENCES documents(document_id)
-                );
-
-                CREATE INDEX IF NOT EXISTS idx_documents_file_sha256 ON documents(file_sha256);
-                CREATE INDEX IF NOT EXISTS idx_sections_document_id ON sections(document_id);
-                CREATE INDEX IF NOT EXISTS idx_paragraphs_document_id ON paragraphs(document_id);
-                CREATE INDEX IF NOT EXISTS idx_processing_status_document_id ON document_processing_status(document_id);
-                """
-            )
+            needs_section_migration = self._has_legacy_single_id_pk(conn, "sections", "section_id")
+            needs_paragraph_migration = self._has_legacy_single_id_pk(conn, "paragraphs", "paragraph_id")
+            if needs_section_migration or needs_paragraph_migration:
+                self._migrate_sections_and_paragraphs_to_composite_keys(conn)
 
     def upsert_document(self, doc: lo.DocumentRecord) -> None:
         with self._connect() as conn:
@@ -125,8 +230,7 @@ class SQLiteStore:
                     :pages_json, :paragraph_ids_json, :merged_from_section_ids_json,
                     :is_heading_only_original, :inherited_headings_json
                 )
-                ON CONFLICT(section_id) DO UPDATE SET
-                    document_id=excluded.document_id,
+                ON CONFLICT(document_id, section_id) DO UPDATE SET
                     section_order=excluded.section_order,
                     title=excluded.title,
                     summary=excluded.summary,
@@ -171,8 +275,7 @@ class SQLiteStore:
                     :pages_json, :layout_refs_json, :role, :is_heading_like,
                     :merged_from_ids_json, :embedding_model, :embedding_vector_id, :token_count
                 )
-                ON CONFLICT(paragraph_id) DO UPDATE SET
-                    document_id=excluded.document_id,
+                ON CONFLICT(document_id, paragraph_id) DO UPDATE SET
                     section_id=excluded.section_id,
                     order_in_section=excluded.order_in_section,
                     kind=excluded.kind,

@@ -40,6 +40,9 @@ class HybridRetriever:
             for section in sections
         ]
 
+    def prepare_unique_queries(self, query_hints: list[str]) -> list[str]:
+        return self._prepare_multi_queries(query_hints)
+
     def retrieve_candidates(
         self,
         document_id: str,

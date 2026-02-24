@@ -20,6 +20,14 @@ class ChromaStore:
             name="home_report_paragraphs_v1"
         )
 
+    @staticmethod
+    def paragraph_vector_id(document_id: str, paragraph_id: str) -> str:
+        return f"{document_id}:{paragraph_id}"
+
+    @staticmethod
+    def section_key(document_id: str, section_id: str) -> str:
+        return f"{document_id}:{section_id}"
+
     def upsert_paragraph_vectors(
         self,
         paragraphs: list[lo.ParagraphRecord],
@@ -30,21 +38,25 @@ class ChromaStore:
         documents: list[str] = []
         metadatas: list[dict] = []
         embeddings: list[list[float]] = []
+        vector_id_map: dict[str, str] = {}
 
         for paragraph in paragraphs:
             vector = vectors_by_paragraph_id.get(paragraph.paragraph_id)
             if vector is None:
                 continue
 
-            vector_id = f"{paragraph.document_id}:{paragraph.paragraph_id}"
+            vector_id = self.paragraph_vector_id(paragraph.document_id, paragraph.paragraph_id)
             ids.append(vector_id)
+            vector_id_map[paragraph.paragraph_id] = vector_id
             documents.append(paragraph.text)
             embeddings.append(vector)
             metadatas.append(
                 {
                     "document_id": paragraph.document_id,
                     "section_id": paragraph.section_id,
+                    "section_key": self.section_key(paragraph.document_id, paragraph.section_id),
                     "paragraph_id": paragraph.paragraph_id,
+                    "paragraph_key": vector_id,
                     "kind": paragraph.kind,
                     "pages": ",".join(str(p) for p in paragraph.pages),
                     "section_order": section_order_by_id.get(paragraph.section_id, 0),
@@ -60,4 +72,4 @@ class ChromaStore:
                 metadatas=metadatas,
             )
 
-        return {pid.split(":", 1)[1]: pid for pid in ids}
+        return vector_id_map

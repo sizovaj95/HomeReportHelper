@@ -111,6 +111,17 @@ class AgentExtractor:
         query_hints: list[str],
     ):
         logger.info("%sExtracting field: %s%s", GREEN, field_key, RESET)
+        limits = self._compute_retrieval_limits(query_hints)
+        logger.info(
+            "%sField %s: query_count=%s final_limit=%s top_k_vector=%s top_k_keyword=%s%s",
+            GREEN,
+            field_key,
+            limits["query_count"],
+            limits["final_limit"],
+            limits["top_k_vector"],
+            limits["top_k_keyword"],
+            RESET,
+        )
         if self._cached_section_overview is None:
             self._cached_section_overview = self.retriever.get_section_overview(document_id)
 
@@ -125,6 +136,7 @@ class AgentExtractor:
             document_id=document_id,
             section_ids=selected_section_ids,
             query_hints=query_hints,
+            final_limit=limits["final_limit"],
         )
         logger.info(
             "%sField %s: section_routed candidates=%s (selected_sections=%s)%s",
@@ -134,12 +146,26 @@ class AgentExtractor:
             len(selected_section_ids),
             RESET,
         )
-        hybrid = self.retriever.retrieve_candidates(document_id, query_hints)
+        hybrid = self.retriever.retrieve_candidates(
+            document_id=document_id,
+            query_hints=query_hints,
+            top_k_vector=limits["top_k_vector"],
+            top_k_keyword=limits["top_k_keyword"],
+            final_limit=limits["final_limit"],
+        )
         logger.info("%sField %s: hybrid candidates=%s%s", GREEN, field_key, len(hybrid), RESET)
 
         merged = self._merge_candidates(section_routed, hybrid)
-        logger.info("%sField %s: merged unique candidates=%s%s", GREEN, field_key, len(merged), RESET)
-        return merged
+        trimmed = merged[:limits["final_limit"]]
+        logger.info(
+            "%sField %s: merged unique candidates=%s -> trimmed=%s%s",
+            GREEN,
+            field_key,
+            len(merged),
+            len(trimmed),
+            RESET,
+        )
+        return trimmed
 
     def _select_relevant_sections(
         self,
@@ -199,6 +225,38 @@ class AgentExtractor:
             seen.add(candidate.paragraph_id)
             merged.append(candidate)
         return merged
+
+    def _compute_retrieval_limits(self, query_hints: list[str]) -> dict[str, int]:
+        if hasattr(self.retriever, "prepare_unique_queries"):
+            unique_queries = self.retriever.prepare_unique_queries(query_hints)
+        else:
+            unique_queries = self._normalize_unique_queries(query_hints)
+
+        query_count = max(1, len(unique_queries))
+        final_limit = min(
+            config.FINAL_CANDIDATE_LIMIT_MAX,
+            config.FINAL_CANDIDATE_LIMIT_BASE + (config.FINAL_CANDIDATE_LIMIT_PER_QUERY * query_count),
+        )
+        top_k_vector = max(config.RETRIEVAL_TOP_K_VECTOR, final_limit)
+        top_k_keyword = max(config.RETRIEVAL_TOP_K_KEYWORD, final_limit + config.RETRIEVAL_KEYWORD_BUFFER)
+
+        return {
+            "query_count": query_count,
+            "final_limit": final_limit,
+            "top_k_vector": top_k_vector,
+            "top_k_keyword": top_k_keyword,
+        }
+
+    def _normalize_unique_queries(self, query_hints: list[str]) -> list[str]:
+        seen: set[str] = set()
+        normalized: list[str] = []
+        for hint in query_hints:
+            value = " ".join((hint or "").strip().lower().split())
+            if not value or value in seen:
+                continue
+            seen.add(value)
+            normalized.append(value)
+        return normalized
 
     def _extract_field_from_candidates(
         self,
