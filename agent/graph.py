@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timezone
 from typing import Callable
 
@@ -7,6 +8,8 @@ from langgraph.graph import END, START, StateGraph
 
 from agent.graph_state import GraphState
 from agent.prompts import FIELD_SPECS
+
+logger = logging.getLogger(__name__)
 
 
 def build_agent_graph(
@@ -54,6 +57,7 @@ def build_agent_graph(
         except Exception as exc:
             errors = list(state.get("errors", []))
             errors.append(f"retrieval_failed:{field_key}:{type(exc).__name__}:{exc}")
+            logger.exception("Retrieval node failed for field '%s': %s", field_key, exc)
             return {"current_candidates": [], "errors": errors}
 
     def extract_field_value(state: GraphState) -> GraphState:
@@ -74,6 +78,7 @@ def build_agent_graph(
         except Exception as exc:
             errors = list(state.get("errors", []))
             errors.append(f"extraction_failed:{field_key}:{type(exc).__name__}:{exc}")
+            logger.exception("Extraction node failed for field '%s': %s", field_key, exc)
             return {
                 "current_result": empty_result_factory(spec["is_list"]),
                 "errors": errors,

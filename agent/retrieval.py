@@ -63,6 +63,7 @@ class HybridRetriever:
 
         # Keyword results from section summaries -> include paragraphs in those sections.
         section_hits = self.storage.keyword_search_sections(document_id, query_hints, max(5, top_k_keyword // 3))
+        logger.info("Section keyword hits: %d", len(section_hits))
         for section in section_hits:
             for para in all_paragraphs:
                 if para.section_id == section.section_id:

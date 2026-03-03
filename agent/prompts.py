@@ -310,8 +310,3 @@ def make_section_router_prompt(
         "Available sections:\n"
         f"{sections_text}"
     )
-
-
-"""
-TODO: solar panels?
-"""
