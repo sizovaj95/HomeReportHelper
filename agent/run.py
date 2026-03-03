@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 import sys
 from datetime import datetime
@@ -16,7 +17,9 @@ if __package__ in {None, ""}:
 from agent import config
 from agent.extractor import AgentExtractor
 from agent.html_renderer import render_html
+from agent.mcp_stdio_client import MCPStdioClient
 from agent.retrieval import HybridRetriever
+from agent.retrieval_mcp import MCPHybridRetriever
 from agent.storage import AgentStorage
 from data_preparation.pipeline_service import prepare_document_if_needed
 
@@ -74,61 +77,92 @@ def main() -> None:
     logger.info("Looking for reports in: %s", config.REPORTS_DIR)
     pdf_path = choose_pdf_from_reports_dir(config.REPORTS_DIR)
     logger.info("Selected document: %s", pdf_path.name)
+    use_mcp_tools = os.getenv("AGENT_USE_MCP_TOOLS", "0").strip().lower() in {"1", "true", "yes"}
+    mcp_client = None
+    if use_mcp_tools:
+        try:
+            mcp_client = MCPStdioClient()
+            logger.info("MCP mode enabled (AGENT_USE_MCP_TOOLS=1): using real MCP stdio client")
+        except Exception as exc:
+            logger.warning("Failed to load MCP tools, falling back to direct mode: %s", exc)
+            use_mcp_tools = False
 
-    logger.info("Stage 2/6: Checking cache and running data preparation if needed")
-    prep_info = prepare_document_if_needed(
-        pdf_path=pdf_path,
-        sqlite_db=config.SQLITE_DB_PATH,
-        chroma_dir=config.CHROMA_DIR,
-    )
-    logger.info(
-        "Preparation status: was_prepared_now=%s document_id=%s",
-        prep_info.was_prepared_now,
-        prep_info.document_id,
-    )
+    try:
+        logger.info("Stage 2/6: Checking cache and running data preparation if needed")
+        if use_mcp_tools and mcp_client is not None:
+            mcp_retriever = MCPHybridRetriever(mcp_client)
+            try:
+                prep_info = mcp_retriever.prepare_report(file_name=pdf_path.name)
+                logger.info(
+                    "Preparation status (MCP): was_prepared_now=%s document_id=%s",
+                    prep_info.was_prepared_now,
+                    prep_info.document_id,
+                )
+                retriever = mcp_retriever
+            except Exception as exc:
+                logger.warning("MCP preparation call failed, falling back to direct mode: %s", exc)
+                use_mcp_tools = False
 
-    logger.info("Stage 3/6: Initializing storage and retrieval components")
-    storage = AgentStorage(config.SQLITE_DB_PATH)
-    retriever = HybridRetriever(storage=storage, chroma_dir=config.CHROMA_DIR)
-    extractor = AgentExtractor(
-        retriever=retriever,
-        models={
-            "EXTRACTOR_MODEL": config.EXTRACTION_MODEL,
-            "SECTION_MODEL": config.EXTRACTION_MODEL,
-        },
-    )
+        if not use_mcp_tools:
+            prep_info = prepare_document_if_needed(
+                pdf_path=pdf_path,
+                sqlite_db=config.SQLITE_DB_PATH,
+                chroma_dir=config.CHROMA_DIR,
+            )
+            logger.info(
+                "Preparation status: was_prepared_now=%s document_id=%s",
+                prep_info.was_prepared_now,
+                prep_info.document_id,
+            )
 
-    logger.info("Stage 4/6: Extracting required fields using grounded evidence")
-    report = extractor.extract_report(
-        document_id=prep_info.document_id,
-        file_name=prep_info.file_name,
-    )
-    logger.info("Extraction complete for file: %s", prep_info.file_name)
+            logger.info("Stage 3/6: Initializing storage and retrieval components")
+            storage = AgentStorage(config.SQLITE_DB_PATH)
+            retriever = HybridRetriever(storage=storage, chroma_dir=config.CHROMA_DIR)
 
-    logger.info("Stage 5/6: Rendering HTML and preparing output paths")
-    html = render_html(report)
-    now = datetime.now()
-    json_path, html_path = build_output_paths(prep_info.file_name, now)
-
-    logger.info("Stage 6/6: Writing JSON and HTML artifacts")
-    json_path.write_text(report.model_dump_json(indent=2), encoding="utf-8")
-    html_path.write_text(html, encoding="utf-8")
-    logger.info("Wrote JSON output: %s", json_path)
-    logger.info("Wrote HTML output: %s", html_path)
-
-    print(
-        json.dumps(
-            {
-                "document_id": prep_info.document_id,
-                "file_name": prep_info.file_name,
-                "was_prepared_now": prep_info.was_prepared_now,
-                "json_output": str(json_path),
-                "html_output": str(html_path),
+        if use_mcp_tools:
+            logger.info("Stage 3/6: Initializing MCP-backed retrieval components")
+        extractor = AgentExtractor(
+            retriever=retriever,
+            models={
+                "EXTRACTOR_MODEL": config.EXTRACTION_MODEL,
+                "SECTION_MODEL": config.SECTION_MODEL,
             },
-            indent=2,
         )
-    )
-    logger.info("Agent run complete")
+
+        logger.info("Stage 4/6: Extracting required fields using grounded evidence")
+        report = extractor.extract_report(
+            document_id=prep_info.document_id,
+            file_name=prep_info.file_name,
+        )
+        logger.info("Extraction complete for file: %s", prep_info.file_name)
+
+        logger.info("Stage 5/6: Rendering HTML and preparing output paths")
+        html = render_html(report)
+        now = datetime.now()
+        json_path, html_path = build_output_paths(prep_info.file_name, now)
+
+        logger.info("Stage 6/6: Writing JSON and HTML artifacts")
+        json_path.write_text(report.model_dump_json(indent=2), encoding="utf-8")
+        html_path.write_text(html, encoding="utf-8")
+        logger.info("Wrote JSON output: %s", json_path)
+        logger.info("Wrote HTML output: %s", html_path)
+
+        print(
+            json.dumps(
+                {
+                    "document_id": prep_info.document_id,
+                    "file_name": prep_info.file_name,
+                    "was_prepared_now": prep_info.was_prepared_now,
+                    "json_output": str(json_path),
+                    "html_output": str(html_path),
+                },
+                indent=2,
+            )
+        )
+        logger.info("Agent run complete")
+    finally:
+        if mcp_client is not None:
+            mcp_client.close()
 
 
 if __name__ == "__main__":

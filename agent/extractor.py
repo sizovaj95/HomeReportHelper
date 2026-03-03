@@ -123,21 +123,39 @@ class AgentExtractor:
             RESET,
         )
         if self._cached_section_overview is None:
-            self._cached_section_overview = self.retriever.get_section_overview(document_id)
+            try:
+                self._cached_section_overview = self.retriever.get_section_overview(document_id)
+            except Exception as exc:
+                logger.exception(
+                    "Field %s: get_section_overview failed; proceeding without section routing. Error: %s",
+                    field_key,
+                    exc,
+                )
+                self._cached_section_overview = []
 
         section_overview = self._cached_section_overview
-        selected_section_ids = self._select_relevant_sections(
-            field_key=field_key,
-            field_label=field_label,
-            section_overview=section_overview,
-        )
+        selected_section_ids: list[str] = []
+        if section_overview:
+            selected_section_ids = self._select_relevant_sections(
+                field_key=field_key,
+                field_label=field_label,
+                section_overview=section_overview,
+            )
 
-        section_routed = self.retriever.retrieve_candidates_from_sections(
-            document_id=document_id,
-            section_ids=selected_section_ids,
-            query_hints=query_hints,
-            final_limit=limits["final_limit"],
-        )
+        try:
+            section_routed = self.retriever.retrieve_candidates_from_sections(
+                document_id=document_id,
+                section_ids=selected_section_ids,
+                query_hints=query_hints,
+                final_limit=limits["final_limit"],
+            )
+        except Exception as exc:
+            logger.exception(
+                "Field %s: section-routed retrieval failed; continuing with hybrid retrieval. Error: %s",
+                field_key,
+                exc,
+            )
+            section_routed = []
         logger.info(
             "%sField %s: section_routed candidates=%s (selected_sections=%s)%s",
             GREEN,
@@ -146,13 +164,21 @@ class AgentExtractor:
             len(selected_section_ids),
             RESET,
         )
-        hybrid = self.retriever.retrieve_candidates(
-            document_id=document_id,
-            query_hints=query_hints,
-            top_k_vector=limits["top_k_vector"],
-            top_k_keyword=limits["top_k_keyword"],
-            final_limit=limits["final_limit"],
-        )
+        try:
+            hybrid = self.retriever.retrieve_candidates(
+                document_id=document_id,
+                query_hints=query_hints,
+                top_k_vector=limits["top_k_vector"],
+                top_k_keyword=limits["top_k_keyword"],
+                final_limit=limits["final_limit"],
+            )
+        except Exception as exc:
+            logger.exception(
+                "Field %s: hybrid retrieval failed. Error: %s",
+                field_key,
+                exc,
+            )
+            hybrid = []
         logger.info("%sField %s: hybrid candidates=%s%s", GREEN, field_key, len(hybrid), RESET)
 
         merged = self._merge_candidates(section_routed, hybrid)

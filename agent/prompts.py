@@ -35,13 +35,13 @@ SECTION_ROUTER_SYSTEM_PROMPT = (
 
 
 FIELD_SPECS = {
-    # "property_address": {
-    #     "label": "Property Address",
-    #     "is_list": False,
-    #     "ui_group": FieldGroup.PROPERTY_OVERVIEW,
-    #     "queries": ["property address", "address", "location"],
-    #     "extra_prompt": None,
-    # },
+    "property_address": {
+        "label": "Property Address",
+        "is_list": False,
+        "ui_group": FieldGroup.PROPERTY_OVERVIEW,
+        "queries": ["property address", "address", "location"],
+        "extra_prompt": None,
+    },
     "property_age": {
         "label": "Property Age",
         "is_list": False,
@@ -213,6 +213,7 @@ FIELD_SPECS = {
         "queries": ["right of way", "servitude", "servitudes", "access rights", "wayleave"],
         "extra_prompt": (
             "Determine only whether any explicit right of way, servitude, or similar access/title burden/right is stated. "
+            "Exclude right of way, servitude, access rights, and communal area access notes from this field. "
             "If explicitly present, return a concise value like 'Yes - <explicit note>'. "
             "If explicitly stated absent/negative, return 'No' or 'No - <explicit note>'. "
             "If not explicitly stated, return not_found. Never infer from silence."
@@ -225,7 +226,6 @@ FIELD_SPECS = {
         "queries": ["listed building", "protected building", "conservation area", "historic designation"],
         "extra_prompt": (
             "Determine only whether the property/building is explicitly stated to be listed, protected, or under conservation/historic designation constraints. "
-            "Exclude right of way, servitude, access rights, and communal area access notes from this field. "
             "If explicitly present, return a concise value like 'Yes - <explicit note>'. "
             "If explicitly stated absent/negative, return 'No' or 'No - <explicit note>'. "
             "If not explicitly stated, return not_found. Never infer from silence."
@@ -310,8 +310,3 @@ def make_section_router_prompt(
         "Available sections:\n"
         f"{sections_text}"
     )
-
-
-"""
-TODO: solar panels?
-"""
