@@ -3,12 +3,15 @@ from __future__ import annotations
 import asyncio
 import concurrent.futures
 import json
+import logging
 import queue
 import threading
 from pathlib import Path
 from typing import Any
 
 from agent import config
+
+logger = logging.getLogger(__name__)
 
 
 class MCPStdioClient:
@@ -23,10 +26,14 @@ class MCPStdioClient:
         command: str = "python3",
         args: list[str] | None = None,
         cwd: str | None = None,
+        startup_timeout_seconds: float = 30.0,
+        call_timeout_seconds: float | None = None,
     ) -> None:
         self.command = command
         self.args = args or ["-m", "mcp_server.home_report_server"]
         self.cwd = cwd or str(config.BASE_DIR)
+        self.startup_timeout_seconds = startup_timeout_seconds
+        self.call_timeout_seconds = call_timeout_seconds
         self._thread: threading.Thread | None = None
         self._request_queue: queue.Queue | None = None
         self._ready = threading.Event()
@@ -51,7 +58,10 @@ class MCPStdioClient:
         self._ready.clear()
         self._thread = threading.Thread(target=self._run_worker, name="mcp-stdio-worker", daemon=True)
         self._thread.start()
-        self._ready.wait(timeout=30)
+        started = self._ready.wait(timeout=self.startup_timeout_seconds)
+        if not started:
+            self.close()
+            raise RuntimeError("Timed out waiting for MCP stdio worker to initialize.")
         if self._start_error is not None:
             err = self._start_error
             self._start_error = None
@@ -71,6 +81,8 @@ class MCPStdioClient:
                 self._request_queue.put(self._stop_sentinel)
             if self._thread is not None and self._thread.is_alive():
                 self._thread.join(timeout=10)
+                if self._thread.is_alive():
+                    logger.warning("MCP stdio worker did not stop cleanly within timeout.")
         finally:
             self._thread = None
             self._request_queue = None
@@ -82,7 +94,7 @@ class MCPStdioClient:
 
         response_future: concurrent.futures.Future = concurrent.futures.Future()
         self._request_queue.put((tool_name, arguments or {}, response_future))
-        return response_future.result()
+        return response_future.result(timeout=self.call_timeout_seconds)
 
     def _run_worker(self) -> None:
         try:

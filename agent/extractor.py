@@ -4,7 +4,7 @@ import json
 import logging
 import os
 from datetime import datetime, timezone
-from typing import Mapping
+from typing import Any, Mapping
 
 from dotenv import load_dotenv
 
@@ -18,7 +18,6 @@ from agent.prompts import (
     make_section_router_prompt,
     make_user_prompt,
 )
-from agent.retrieval import HybridRetriever
 from agent.schema import (
     EvidenceParagraph,
     FieldResultModel,
@@ -37,7 +36,7 @@ RESET = "\033[0m"
 class AgentExtractor:
     def __init__(
         self,
-        retriever: HybridRetriever,
+        retriever: Any,
         models: Mapping[str, str] | None = None,
     ):
         try:
@@ -62,7 +61,6 @@ class AgentExtractor:
         self.client = OpenAI(api_key=OPENAI_API_KEY)
         self._cached_section_overview: list[dict] | None = None
         self.graph = build_agent_graph(
-            retriever=self.retriever,
             model=self.model,
             retrieve_candidates_for_field=self._retrieve_candidates_for_field,
             extract_field_from_candidates=self._extract_field_from_candidates,
@@ -221,6 +219,7 @@ class AgentExtractor:
                             field_key,
                             field_label,
                             overview_text,
+                            query_hints=FIELD_SPECS.get(field_key, {}).get("queries", []),
                         ),
                     },
                 ],
@@ -239,7 +238,8 @@ class AgentExtractor:
                 seen.add(sid)
                 deduped.append(sid)
             return deduped[:5]
-        except Exception:
+        except Exception as exc:
+            logger.warning("Section router failed for field %s: %s", field_key, exc)
             return []
 
     def _merge_candidates(self, primary, fallback):

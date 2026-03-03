@@ -13,7 +13,6 @@ logger = logging.getLogger(__name__)
 
 
 def build_agent_graph(
-    retriever,
     model: str,
     retrieve_candidates_for_field: Callable,
     extract_field_from_candidates: Callable,

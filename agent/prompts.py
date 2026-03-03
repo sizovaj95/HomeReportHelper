@@ -146,7 +146,11 @@ FIELD_SPECS = {
         "ui_group": FieldGroup.ENERGY_UTILITIES,
         "queries": ["gas", "boiler", "gas supply", "heating system", "gas safety"],
         "extra_prompt": (
-            "Summarize only explicit notes about gas supply/system and boiler condition/type/safety."
+            "Extract only property-specific gas/heating facts explicitly stated in evidence "
+            "(for example: boiler brand/model, boiler type/fuel, boiler location, stated age/installation year, "
+            "explicit property-specific defects or compliance issues). "
+            "Exclude generic disclaimers and boilerplate such as: visual inspection limitations, assumptions, "
+            "recommendations for regular servicing/testing, and general regulatory guidance not specific to this property."
         ),
     },
     "electricity_notes": {
@@ -155,7 +159,11 @@ FIELD_SPECS = {
         "ui_group": FieldGroup.ENERGY_UTILITIES,
         "queries": ["electricity", "electrical", "consumer unit", "wiring", "electrical safety"],
         "extra_prompt": (
-            "Summarize only explicit notes about electrical installation/supply/condition/safety."
+            "Extract only property-specific electrical facts explicitly stated in evidence "
+            "(for example: consumer unit type/material/location, visible wiring type, mains supply notes, "
+            "explicit property-specific defects or compliance concerns). "
+            "Exclude generic recommendations and boilerplate such as periodic test advice, change-of-ownership guidance, "
+            "inspection limitations, assumptions, and general standards commentary not specific to this property."
         ),
     },
     "potential_problems": {
@@ -213,7 +221,7 @@ FIELD_SPECS = {
         "queries": ["right of way", "servitude", "servitudes", "access rights", "wayleave"],
         "extra_prompt": (
             "Determine only whether any explicit right of way, servitude, or similar access/title burden/right is stated. "
-            "Exclude right of way, servitude, access rights, and communal area access notes from this field. "
+            "Exclude notes that refer only to communal/shared area access and do not create a property-specific right or burden. "
             "If explicitly present, return a concise value like 'Yes - <explicit note>'. "
             "If explicitly stated absent/negative, return 'No' or 'No - <explicit note>'. "
             "If not explicitly stated, return not_found. Never infer from silence."
