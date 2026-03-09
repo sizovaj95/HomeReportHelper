@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import threading
 
 from dotenv import load_dotenv
 
@@ -86,16 +87,42 @@ class SectionSummarizer:
 
         async def _summarize_one(section: lo.SectionRecord) -> str:
             async with semaphore:
-                return await self.summarize(section_text_map.get(section.section_id, ""))
+                try:
+                    return await self.summarize(section_text_map.get(section.section_id, ""))
+                except Exception:
+                    return ""
 
         tasks = [_summarize_one(section) for section in sections]
         return await asyncio.gather(*tasks)
+
+    @staticmethod
+    def _run_async_sync(coro):
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return asyncio.run(coro)
+
+        result_holder: dict[str, list[str]] = {}
+        error_holder: dict[str, Exception] = {}
+
+        def _runner() -> None:
+            try:
+                result_holder["value"] = asyncio.run(coro)
+            except Exception as exc:  # pragma: no cover
+                error_holder["error"] = exc
+
+        thread = threading.Thread(target=_runner, daemon=True)
+        thread.start()
+        thread.join()
+        if "error" in error_holder:
+            raise error_holder["error"]
+        return result_holder["value"]
 
     def summarize_sections(
         self,
         sections: list[lo.SectionRecord],
         section_text_map: dict[str, str],
     ) -> None:
-        summaries = asyncio.run(self._summarize_sections_async(sections, section_text_map))
+        summaries = self._run_async_sync(self._summarize_sections_async(sections, section_text_map))
         for section, summary in zip(sections, summaries):
             section.summary = summary

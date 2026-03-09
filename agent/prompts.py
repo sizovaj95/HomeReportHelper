@@ -173,7 +173,9 @@ FIELD_SPECS = {
         "queries": ["defects", "repairs", "problems", "replacement needed", "condition", "leak",
         "flooding", "damp", "rot", "structural issues", "termites"],
         "extra_prompt": (
-            "Include only concrete property issues/defects/repair needs. "
+            "Include only concrete property issues/defects/repair needs that have an explicit explanation in the evidence. "
+            "Do not treat section headings, element names, condition ratings, or checklist rows as problems on their own. "
+            "Only return an item when the text explains what the issue is (and include that explanation concisely). "
             "Avoid generic disclaimers or process-related text."
         ),
     },

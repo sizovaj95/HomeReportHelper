@@ -157,7 +157,6 @@ def prepare_document_if_needed(
                     summaries_ready=False,
                     last_error=f"summaries_failed: {type(exc).__name__}: {exc}",
                 )
-                raise
 
         if run_embeddings and not embeddings_ready:
             did_any_work = True
@@ -197,15 +196,13 @@ def prepare_document_if_needed(
                     embeddings_ready=False,
                     last_error=f"embeddings_failed: {type(exc).__name__}: {exc}",
                 )
-                raise
 
-        if (not run_summaries or summaries_ready) and (not run_embeddings or embeddings_ready):
-            return PreparedDocumentInfo(
-                document_id=existing_document_id,
-                file_name=file_name,
-                file_sha256=pdf_sha256,
-                was_prepared_now=did_any_work,
-            )
+        return PreparedDocumentInfo(
+            document_id=existing_document_id,
+            file_name=file_name,
+            file_sha256=pdf_sha256,
+            was_prepared_now=did_any_work,
+        )
 
     if not AZURE_LANG_ENDPOINT or not AZURE_LANG_API_KEY:
         raise RuntimeError("Missing Azure Language Service credentials.")
@@ -267,7 +264,6 @@ def prepare_document_if_needed(
                 summaries_ready=False,
                 last_error=f"summaries_failed: {type(exc).__name__}: {exc}",
             )
-            raise
 
     if run_embeddings:
         try:
@@ -305,7 +301,6 @@ def prepare_document_if_needed(
                 embeddings_ready=False,
                 last_error=f"embeddings_failed: {type(exc).__name__}: {exc}",
             )
-            raise
 
     return PreparedDocumentInfo(
         document_id=document.document_id,

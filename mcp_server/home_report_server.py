@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import logging
 from dataclasses import asdict
@@ -131,14 +132,16 @@ def get_document_status(file_name: str) -> dict[str, Any]:
 
 
 @mcp.tool()
-def prepare_report(
+async def prepare_report(
     file_name: str,
     run_summaries: bool = True,
     run_embeddings: bool = True,
 ) -> dict[str, Any]:
     """Run preparation if needed; reuses cached canonical data if already prepared."""
     pdf_path = _resolve_report_path(file_name)
-    info = prepare_document_if_needed(
+    # Run blocking prep in a worker thread to avoid event-loop conflicts.
+    info = await asyncio.to_thread(
+        prepare_document_if_needed,
         pdf_path=pdf_path,
         sqlite_db=config.SQLITE_DB_PATH,
         chroma_dir=config.CHROMA_DIR,
@@ -229,4 +232,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
